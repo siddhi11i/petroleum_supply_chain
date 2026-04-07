@@ -6,7 +6,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import db from './db.js';
+import { query, initializeDatabase } from './db.js';
 
 const app = express();
 const PORT = 3000;
@@ -21,13 +21,13 @@ const generateHash = (data: any) => {
   return crypto.createHash('sha256').update(JSON.stringify(data)).digest('hex');
 };
 
-const getLatestLedgerHash = (): string | null => {
-  const row: any = db.prepare('SELECT Transaction_Data_Hash FROM Transaction_Ledger ORDER BY Transaction_ID DESC LIMIT 1').get();
-  return row ? row.Transaction_Data_Hash : '0'.repeat(64);
+const getLatestLedgerHash = async (): Promise<string | null> => {
+  const results: any = await query('SELECT Transaction_Data_Hash FROM Transaction_Ledger ORDER BY Transaction_ID DESC LIMIT 1');
+  return results.length > 0 ? results[0].Transaction_Data_Hash : '0'.repeat(64);
 };
 
-const addToLedger = (tableName: string, recordId: string, newData: any, signature: string, operation: string = 'INSERT', oldData: any = null) => {
-  const previousHash = getLatestLedgerHash();
+const addToLedger = async (tableName: string, recordId: string, newData: any, signature: string, operation: string = 'INSERT', oldData: any = null) => {
+  const previousHash = await getLatestLedgerHash();
   
   const ledgerEntry = {
     tableName,
@@ -41,11 +41,11 @@ const addToLedger = (tableName: string, recordId: string, newData: any, signatur
 
   const currentHash = generateHash(ledgerEntry);
 
-  db.prepare(`
+  await query(`
     INSERT INTO Transaction_Ledger 
     (TableName, Record_ID, Operation, Old_Data, New_Data, Transaction_Data_Hash, Previous_Transaction_Hash, Digital_Signature_Sender)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(tableName, recordId, operation, ledgerEntry.oldData, ledgerEntry.newData, currentHash, previousHash, signature);
+  `, [tableName, recordId, operation, ledgerEntry.oldData, ledgerEntry.newData, currentHash, previousHash, signature]);
 };
 
 // --- Auth Middleware ---
@@ -71,7 +71,7 @@ app.post('/api/register', async (req, res) => {
 
   const hashedPassword = await bcrypt.hash(password, 10);
   try {
-    db.prepare('INSERT INTO Users (username, password_hash, role) VALUES (?, ?, ?)').run(username, hashedPassword, role || 'USER');
+    await query('INSERT INTO Users (username, password_hash, role) VALUES (?, ?, ?)', [username, hashedPassword, role || 'USER']);
     res.status(201).json({ message: 'User registered successfully' });
   } catch (err) {
     res.status(400).json({ error: 'Username already exists' });
@@ -81,7 +81,8 @@ app.post('/api/register', async (req, res) => {
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
   try {
-    const user: any = db.prepare('SELECT * FROM Users WHERE username = ?').get(username);
+    const results: any = await query('SELECT * FROM Users WHERE username = ?', [username]);
+    const user = results[0];
     if (!user) return res.status(400).json({ error: 'User not found' });
     
     const validPassword = await bcrypt.compare(password, user.password_hash);
@@ -118,9 +119,9 @@ const createCRUDRoutes = (tableName: string, idField: string) => {
   };
 
   // GET all
-  app.get(`/api/${tableName.toLowerCase()}`, authenticateToken, (req, res) => {
+  app.get(`/api/${tableName.toLowerCase()}`, authenticateToken, async (req, res) => {
     try {
-      const rows = db.prepare(`SELECT * FROM ${tableName}`).all();
+      const rows = await query(`SELECT * FROM ${tableName}`);
       res.json(rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -141,18 +142,19 @@ const createCRUDRoutes = (tableName: string, idField: string) => {
     const placeholders = fields.map(() => '?').join(',');
 
     try {
-      db.prepare(
-        `INSERT INTO ${tableName} (${fields.join(',')}) VALUES (${placeholders})`
-      ).run(...values);
+      await query(
+        `INSERT INTO ${tableName} (${fields.join(',')}) VALUES (${placeholders})`,
+        values
+      );
       
-      addToLedger(tableName, data[idField], data, signature || 'SYSTEM_GEN');
+      await addToLedger(tableName, data[idField], data, signature || 'SYSTEM_GEN');
       res.status(201).json({ message: 'Record created and ledger updated', id: data[idField] });
     } catch (err: any) {
       console.error(`Error adding to ${tableName}:`, err);
       let errorMessage = err.message;
-      if (err.message.includes('FOREIGN KEY constraint failed')) {
+      if (err.message.includes('foreign key constraint fails')) {
         errorMessage = 'Reference ID not found in the related table. Please verify your IDs.';
-      } else if (err.message.includes('UNIQUE constraint failed')) {
+      } else if (err.message.includes('Duplicate entry')) {
         errorMessage = 'A record with this ID already exists.';
       }
       res.status(400).json({ error: errorMessage });
@@ -165,21 +167,22 @@ const createCRUDRoutes = (tableName: string, idField: string) => {
     const { signature, ...data } = req.body;
     
     try {
-      const oldData = db.prepare(`SELECT * FROM ${tableName} WHERE ${idField} = ?`).get(id);
+      const results: any = await query(`SELECT * FROM ${tableName} WHERE ${idField} = ?`, [id]);
+      const oldData = results[0];
       if (!oldData) return res.status(404).json({ error: 'Record not found' });
 
       const fields = Object.keys(data);
       const values = [...Object.values(data), id];
       const setClause = fields.map(f => `${f} = ?`).join(',');
 
-      db.prepare(`UPDATE ${tableName} SET ${setClause} WHERE ${idField} = ?`).run(...values);
+      await query(`UPDATE ${tableName} SET ${setClause} WHERE ${idField} = ?`, values);
       
-      addToLedger(tableName, id, data, signature || 'SYSTEM_CORRECTION', 'UPDATE', oldData);
+      await addToLedger(tableName, id, data, signature || 'SYSTEM_CORRECTION', 'UPDATE', oldData);
       res.json({ message: 'Record updated and correction logged' });
     } catch (err: any) {
       console.error(`Error updating ${tableName}:`, err);
       let errorMessage = err.message;
-      if (err.message.includes('FOREIGN KEY constraint failed')) {
+      if (err.message.includes('foreign key constraint fails')) {
         errorMessage = 'Reference ID not found in the related table. Please verify your IDs.';
       }
       res.status(400).json({ error: errorMessage });
@@ -196,9 +199,9 @@ createCRUDRoutes('Distribution', 'Distribution_ID');
 createCRUDRoutes('Retail', 'Retail_ID');
 
 // Ledger Route
-app.get('/api/ledger', authenticateToken, (req, res) => {
+app.get('/api/ledger', authenticateToken, async (req, res) => {
   try {
-    const rows = db.prepare('SELECT * FROM Transaction_Ledger ORDER BY Transaction_ID DESC').all();
+    const rows = await query('SELECT * FROM Transaction_Ledger ORDER BY Transaction_ID DESC');
     res.json(rows);
   } catch (err: any) {
     console.error('Ledger error:', err);
@@ -207,29 +210,34 @@ app.get('/api/ledger', authenticateToken, (req, res) => {
 });
 
 // Provenance Tracking
-app.get('/api/provenance/:type/:id', authenticateToken, (req, res) => {
+app.get('/api/provenance/:type/:id', authenticateToken, async (req, res) => {
   const { type, id } = req.params;
   let provenance: any = {};
 
   try {
     if (type === 'retail') {
-      const retail = db.prepare('SELECT * FROM Retail WHERE Retail_ID = ?').get(id) as any;
+      const retailResults: any = await query('SELECT * FROM Retail WHERE Retail_ID = ?', [id]);
+      const retail = retailResults[0];
       if (retail) {
         provenance.retail = retail;
-        const dist = db.prepare('SELECT * FROM Distribution WHERE Distribution_ID = ?').get(retail.Distribution_ID) as any;
+        const distResults: any = await query('SELECT * FROM Distribution WHERE Distribution_ID = ?', [retail.Distribution_ID]);
+        const dist = distResults[0];
         if (dist) {
           provenance.distribution = dist;
-          const refine = db.prepare('SELECT * FROM Refining_Process WHERE Refine_ID = ?').get(dist.Refine_ID) as any;
+          const refineResults: any = await query('SELECT * FROM Refining_Process WHERE Refine_ID = ?', [dist.Refine_ID]);
+          const refine = refineResults[0];
           if (refine) {
             provenance.refining = refine;
-            const batch = db.prepare('SELECT * FROM Storage_Batch WHERE Batch_ID = ?').get(refine.Batch_ID) as any;
+            const batchResults: any = await query('SELECT * FROM Storage_Batch WHERE Batch_ID = ?', [refine.Batch_ID]);
+            const batch = batchResults[0];
             if (batch) {
               provenance.storage = batch;
-              const transit = db.prepare('SELECT * FROM Transportation_Log WHERE Transit_ID = ?').get(batch.Transit_ID) as any;
+              const transitResults: any = await query('SELECT * FROM Transportation_Log WHERE Transit_ID = ?', [batch.Transit_ID]);
+              const transit = transitResults[0];
               if (transit) {
                 provenance.transport = transit;
-                const crude = db.prepare('SELECT * FROM Crude_Purchase WHERE Purchase_ID = ?').get(transit.Purchase_ID) as any;
-                provenance.crude = crude;
+                const crudeResults: any = await query('SELECT * FROM Crude_Purchase WHERE Purchase_ID = ?', [transit.Purchase_ID]);
+                provenance.crude = crudeResults[0];
               }
             }
           }
@@ -246,7 +254,6 @@ app.get('/api/provenance/:type/:id', authenticateToken, (req, res) => {
 // Reorder Alerts
 app.get('/api/alerts', authenticateToken, (req, res) => {
   try {
-    // Reorder fields removed per user request
     res.json({ stockAlerts: [], storageAlerts: [] });
   } catch (err: any) {
     console.error('Alerts error:', err);
@@ -255,10 +262,10 @@ app.get('/api/alerts', authenticateToken, (req, res) => {
 });
 
 // Ledger Reconstruction (Historical State)
-app.get('/api/ledger/reconstruct/:tableName/:recordId', authenticateToken, (req, res) => {
+app.get('/api/ledger/reconstruct/:tableName/:recordId', authenticateToken, async (req, res) => {
   const { tableName, recordId } = req.params;
   try {
-    const history = db.prepare('SELECT * FROM Transaction_Ledger WHERE TableName = ? AND Record_ID = ? ORDER BY Timestamp ASC').all(tableName, recordId);
+    const history = await query('SELECT * FROM Transaction_Ledger WHERE TableName = ? AND Record_ID = ? ORDER BY Timestamp ASC', [tableName, recordId]);
     res.json(history);
   } catch (err: any) {
     console.error('Ledger reconstruction error:', err);
@@ -267,37 +274,32 @@ app.get('/api/ledger/reconstruct/:tableName/:recordId', authenticateToken, (req,
 });
 
 // Dashboard Stats
-app.get('/api/stats', authenticateToken, (req, res) => {
+app.get('/api/stats', authenticateToken, async (req, res) => {
   const tables = ['Crude_Purchase', 'Transportation_Log', 'Storage_Batch', 'Refining_Process', 'Distribution', 'Retail'];
   const stats: any = { counts: {}, growth: {}, inventory: [] };
 
   try {
-    tables.forEach(table => {
+    for (const table of tables) {
       // Get current count
-      const row: any = db.prepare(`SELECT COUNT(*) as count FROM ${table}`).get();
-      stats.counts[table] = row ? row.count : 0;
+      const countResults: any = await query(`SELECT COUNT(*) as count FROM ${table}`);
+      stats.counts[table] = countResults[0] ? countResults[0].count : 0;
 
-      // Calculate growth (compare last 7 days vs previous 7 days)
-      // Since we don't have a standardized 'created_at' in all tables, we'll use the ID count as a proxy for growth if no date field exists
-      // or just return a random-ish but stable number based on the count for now if date parsing is complex.
-      // Better: let's try to find a date field.
       let dateField = '';
       if (table === 'Crude_Purchase') dateField = 'Purchased_Date';
       if (table === 'Transportation_Log') dateField = 'Departure_Time';
       if (table === 'Storage_Batch') dateField = 'Last_Inspection_Date';
       if (table === 'Refining_Process') dateField = 'Refining_Date';
-      // Distribution and Retail don't have explicit dates in the schema I saw earlier, let's check.
       
       if (dateField) {
         const now = new Date();
         const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
         const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString();
 
-        const recent: any = db.prepare(`SELECT COUNT(*) as count FROM ${table} WHERE ${dateField} >= ?`).get(sevenDaysAgo);
-        const previous: any = db.prepare(`SELECT COUNT(*) as count FROM ${table} WHERE ${dateField} >= ? AND ${dateField} < ?`).get(fourteenDaysAgo, sevenDaysAgo);
+        const recentResults: any = await query(`SELECT COUNT(*) as count FROM ${table} WHERE ${dateField} >= ?`, [sevenDaysAgo]);
+        const previousResults: any = await query(`SELECT COUNT(*) as count FROM ${table} WHERE ${dateField} >= ? AND ${dateField} < ?`, [fourteenDaysAgo, sevenDaysAgo]);
         
-        const recentCount = recent ? recent.count : 0;
-        const previousCount = previous ? previous.count : 0;
+        const recentCount = recentResults[0] ? recentResults[0].count : 0;
+        const previousCount = previousResults[0] ? previousResults[0].count : 0;
 
         if (previousCount === 0) {
           stats.growth[table] = recentCount > 0 ? 100 : 0;
@@ -307,19 +309,19 @@ app.get('/api/stats', authenticateToken, (req, res) => {
       } else {
         stats.growth[table] = 0;
       }
-    });
+    }
 
     // Calculate Inventory Status
-    const crudeVol: any = db.prepare('SELECT SUM(Volume) as total FROM Crude_Purchase').get();
-    const refineVol: any = db.prepare('SELECT SUM(Input_Volume) as total FROM Refining_Process').get();
-    const distVol: any = db.prepare('SELECT SUM(Dispatch_Volume) as total FROM Distribution').get();
-    const retailVol: any = db.prepare('SELECT SUM(Receive_Volume) as total FROM Retail').get();
+    const crudeVol: any = await query('SELECT SUM(Volume) as total FROM Crude_Purchase');
+    const refineVol: any = await query('SELECT SUM(Input_Volume) as total FROM Refining_Process');
+    const distVol: any = await query('SELECT SUM(Dispatch_Volume) as total FROM Distribution');
+    const retailVol: any = await query('SELECT SUM(Receive_Volume) as total FROM Retail');
 
     stats.inventory = [
-      { label: 'Main Reservoir', value: Math.min(100, Math.round(((crudeVol?.total || 0) / 100000) * 100)), color: 'bg-blue-500' },
-      { label: 'Refinery Input', value: Math.min(100, Math.round(((refineVol?.total || 0) / 100000) * 100)), color: 'bg-teal-500' },
-      { label: 'Distribution Hub', value: Math.min(100, Math.round(((distVol?.total || 0) / 100000) * 100)), color: 'bg-emerald-500' },
-      { label: 'Retail Reserve', value: Math.min(100, Math.round(((retailVol?.total || 0) / 100000) * 100)), color: 'bg-amber-500' },
+      { label: 'Main Reservoir', value: Math.min(100, Math.round(((crudeVol[0]?.total || 0) / 100000) * 100)), color: 'bg-blue-500' },
+      { label: 'Refinery Input', value: Math.min(100, Math.round(((refineVol[0]?.total || 0) / 100000) * 100)), color: 'bg-teal-500' },
+      { label: 'Distribution Hub', value: Math.min(100, Math.round(((distVol[0]?.total || 0) / 100000) * 100)), color: 'bg-emerald-500' },
+      { label: 'Retail Reserve', value: Math.min(100, Math.round(((retailVol[0]?.total || 0) / 100000) * 100)), color: 'bg-amber-500' },
     ];
 
     res.json(stats);
@@ -332,6 +334,9 @@ app.get('/api/stats', authenticateToken, (req, res) => {
 // --- Vite Middleware ---
 
 async function startServer() {
+  // Initialize MySQL Database
+  await initializeDatabase();
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
