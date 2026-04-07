@@ -90,8 +90,9 @@ app.post('/api/login', async (req, res) => {
 
     const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
     res.json({ token, username: user.username, role: user.role });
-  } catch (err) {
-    res.status(500).json({ error: 'Login failed' });
+  } catch (err: any) {
+    console.error('Detailed Login Error:', err);
+    res.status(500).json({ error: 'Login failed', details: err.message });
   }
 });
 

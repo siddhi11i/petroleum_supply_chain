@@ -148,6 +148,17 @@ export async function initializeDatabase() {
     for (const sql of tables) {
       await query(sql);
     }
+
+    // SQLite Migration: Ensure 'role' column exists in Users
+    if (!isUsingMysql && sqliteDb) {
+      const tableInfo: any = sqliteDb.prepare("PRAGMA table_info(Users)").all();
+      const hasRole = tableInfo.some((col: any) => col.name === 'role');
+      if (!hasRole) {
+        console.log('Migrating SQLite: Adding role column to Users table...');
+        sqliteDb.prepare("ALTER TABLE Users ADD COLUMN role TEXT NOT NULL DEFAULT 'USER'").run();
+      }
+    }
+
     console.log('Database Schema Initialized.');
   } catch (err) {
     console.error('Error initializing schema:', err);

@@ -586,7 +586,9 @@ const LoginPage = () => {
         alert('Registration successful! Please login.');
       }
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Authentication failed');
+      const errorMessage = err.response?.data?.error || 'Authentication failed';
+      const details = err.response?.data?.details ? ` (${err.response.data.details})` : '';
+      setError(`${errorMessage}${details}`);
     }
   };
 
