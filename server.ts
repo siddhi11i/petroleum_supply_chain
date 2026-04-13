@@ -222,35 +222,42 @@ app.get('/api/provenance/:type/:id', authenticateToken, async (req, res) => {
   let provenance: any = {};
 
   try {
-    if (type === 'retail') {
-      const retailResults: any = await query('SELECT * FROM Retail WHERE Retail_ID = ?', [id]);
-      const retail = retailResults[0];
-      if (retail) {
-        provenance.retail = retail;
-        const distResults: any = await query('SELECT * FROM Distribution WHERE Distribution_ID = ?', [retail.Distribution_ID]);
-        const dist = distResults[0];
-        if (dist) {
-          provenance.distribution = dist;
-          const refineResults: any = await query('SELECT * FROM Refining_Process WHERE Refine_ID = ?', [dist.Refine_ID]);
-          const refine = refineResults[0];
-          if (refine) {
-            provenance.refining = refine;
-            const batchResults: any = await query('SELECT * FROM Storage_Batch WHERE Batch_ID = ?', [refine.Batch_ID]);
-            const batch = batchResults[0];
-            if (batch) {
-              provenance.storage = batch;
-              const transitResults: any = await query('SELECT * FROM Transportation_Log WHERE Transit_ID = ?', [batch.Transit_ID]);
-              const transit = transitResults[0];
-              if (transit) {
-                provenance.transport = transit;
-                const crudeResults: any = await query('SELECT * FROM Crude_Purchase WHERE Purchase_ID = ?', [transit.Purchase_ID]);
-                provenance.crude = crudeResults[0];
-              }
-            }
-          }
-        }
-      }
+    let numericId = '';
+    
+    // Extract numeric ID based on the type and prefix
+    if (type === 'crude') numericId = id.replace('C', '');
+    else if (type === 'transport') numericId = id.replace('T', '');
+    else if (type === 'storage') numericId = id.replace('S', '');
+    else if (type === 'refining') numericId = id.replace('R', '');
+    else if (type === 'distribution') numericId = id.replace('D', '');
+    else if (type === 'retail') numericId = id.replace('RT', '');
+    else return res.status(400).json({ error: 'Invalid stage type' });
+
+    // Fetch all related records using the shared numeric ID
+    const [crude, transport, storage, refining, distribution, retail] = await Promise.all([
+      query('SELECT * FROM Crude_Purchase WHERE Purchase_ID = ?', [`C${numericId}`]),
+      query('SELECT * FROM Transportation_Log WHERE Transit_ID = ?', [`T${numericId}`]),
+      query('SELECT * FROM Storage_Batch WHERE Batch_ID = ?', [`S${numericId}`]),
+      query('SELECT * FROM Refining_Process WHERE Refine_ID = ?', [`R${numericId}`]),
+      query('SELECT * FROM Distribution WHERE Distribution_ID = ?', [`D${numericId}`]),
+      query('SELECT * FROM Retail WHERE Retail_ID = ?', [`RT${numericId}`])
+    ]);
+
+    provenance = {
+      crude: (crude as any)[0] || null,
+      transport: (transport as any)[0] || null,
+      storage: (storage as any)[0] || null,
+      refining: (refining as any)[0] || null,
+      distribution: (distribution as any)[0] || null,
+      retail: (retail as any)[0] || null
+    };
+
+    // Check if at least the requested record exists
+    const requestedRecord = provenance[type];
+    if (!requestedRecord) {
+      return res.status(404).json({ error: `Record ${id} not found in ${type} stage` });
     }
+
     res.json(provenance);
   } catch (err: any) {
     console.error('Provenance error:', err);

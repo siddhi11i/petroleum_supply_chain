@@ -1127,20 +1127,30 @@ const EmissionsPage = () => (
 );
 
 const ProvenancePage = () => {
-  const [retailId, setRetailId] = useState('');
+  const [searchId, setSearchId] = useState('');
+  const [stageType, setStageType] = useState('retail');
   const [provenance, setProvenance] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const stages = [
+    { value: 'crude', label: 'Crude Source', prefix: 'C' },
+    { value: 'transport', label: 'Transportation', prefix: 'T' },
+    { value: 'storage', label: 'Storage Batch', prefix: 'S' },
+    { value: 'refining', label: 'Refining Process', prefix: 'R' },
+    { value: 'distribution', label: 'Distribution', prefix: 'D' },
+    { value: 'retail', label: 'Retail Point', prefix: 'RT' },
+  ];
+
   const fetchProvenance = async () => {
-    if (!retailId) return;
+    if (!searchId) return;
     setLoading(true);
     setError(null);
     setProvenance(null);
     try {
-      const res = await api.get(`/provenance/retail/${retailId}`);
-      if (!res.data || Object.keys(res.data).length === 0) {
-        setError('Record not found');
+      const res = await api.get(`/provenance/${stageType}/${searchId}`);
+      if (!res.data || Object.values(res.data).every(v => v === null)) {
+        setError('No journey data found for this ID');
       } else {
         setProvenance(res.data);
       }
@@ -1156,27 +1166,43 @@ const ProvenancePage = () => {
     <div className="space-y-8">
       <div>
         <h2 className="text-2xl font-bold text-white">Recursive Provenance</h2>
-        <p className="text-slate-400">Trace the complete journey of a retail fuel batch back to its crude source</p>
+        <p className="text-slate-400">Trace the complete journey of any batch across the entire supply chain</p>
       </div>
 
-      <div className="flex gap-4">
-        <Input 
-          placeholder="Enter Retail ID (e.g., RET-001)" 
-          value={retailId}
-          onChange={(e) => setRetailId(e.target.value)}
-          className="max-w-xs"
-        />
-        <Button onClick={fetchProvenance} disabled={loading}>
-          {loading ? 'Tracing...' : 'Trace Journey'}
-        </Button>
+      <div className="flex flex-col sm:flex-row gap-4 bg-slate-900/50 p-6 rounded-2xl border border-slate-800">
+        <div className="space-y-1 flex-1">
+          <label className="text-xs font-bold text-slate-500 uppercase">Search Stage</label>
+          <select 
+            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 text-slate-200 focus:ring-2 focus:ring-teal-500/50"
+            value={stageType}
+            onChange={(e) => setStageType(e.target.value)}
+          >
+            {stages.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+        </div>
+        <div className="space-y-1 flex-[2]">
+          <label className="text-xs font-bold text-slate-500 uppercase">Record ID</label>
+          <div className="flex gap-2">
+            <Input 
+              placeholder={`Enter ID (e.g., ${stages.find(s => s.value === stageType)?.prefix}1234)`} 
+              value={searchId}
+              onChange={(e) => setSearchId(e.target.value)}
+              className="bg-slate-950 border-slate-800"
+            />
+            <Button onClick={fetchProvenance} disabled={loading} className="shrink-0">
+              {loading ? 'Tracing...' : 'Trace Journey'}
+            </Button>
+          </div>
+        </div>
       </div>
 
       {error && (
         <motion.div 
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm"
+          className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm flex items-center gap-2"
         >
+          <AlertTriangle className="w-4 h-4" />
           {error}
         </motion.div>
       )}
@@ -1184,12 +1210,12 @@ const ProvenancePage = () => {
       {provenance && (
         <div className="relative space-y-12 before:absolute before:left-8 before:top-8 before:bottom-8 before:w-0.5 before:bg-slate-800">
           {[
-            { title: 'Retail Station', data: provenance.retail, icon: Store },
-            { title: 'Distribution Network', data: provenance.distribution, icon: Share2 },
-            { title: 'Refinery Process', data: provenance.refining, icon: Factory },
-            { title: 'Storage Batch', data: provenance.storage, icon: Database },
-            { title: 'Transportation', data: provenance.transport, icon: Truck },
-            { title: 'Crude Source', data: provenance.crude, icon: Droplets },
+            { title: 'Retail Station', data: provenance.retail, icon: Store, stage: 'retail' },
+            { title: 'Distribution Network', data: provenance.distribution, icon: Share2, stage: 'distribution' },
+            { title: 'Refinery Process', data: provenance.refining, icon: Factory, stage: 'refining' },
+            { title: 'Storage Batch', data: provenance.storage, icon: Database, stage: 'storage' },
+            { title: 'Transportation', data: provenance.transport, icon: Truck, stage: 'transport' },
+            { title: 'Crude Source', data: provenance.crude, icon: Droplets, stage: 'crude' },
           ].map((step, idx) => step.data && (
             <motion.div 
               key={idx}
@@ -1198,19 +1224,24 @@ const ProvenancePage = () => {
               transition={{ delay: idx * 0.1 }}
               className="relative pl-20"
             >
-              <div className="absolute left-4 top-0 w-8 h-8 rounded-full bg-slate-900 border-2 border-teal-500 flex items-center justify-center z-10">
-                <step.icon className="w-4 h-4 text-teal-400" />
+              <div className={`absolute left-4 top-0 w-8 h-8 rounded-full bg-slate-900 border-2 flex items-center justify-center z-10 ${step.stage === stageType ? 'border-teal-500 shadow-[0_0_15px_rgba(20,184,166,0.3)]' : 'border-slate-700'}`}>
+                <step.icon className={`w-4 h-4 ${step.stage === stageType ? 'text-teal-400' : 'text-slate-500'}`} />
               </div>
-              <Card className="p-6">
-                <h3 className="text-teal-400 font-bold mb-4 flex items-center gap-2">
-                  {step.title}
-                  <span className="text-[10px] bg-teal-500/10 px-2 py-0.5 rounded border border-teal-500/20">VERIFIED</span>
-                </h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <Card className={`p-6 border-slate-800 ${step.stage === stageType ? 'bg-teal-500/5 border-teal-500/30' : 'bg-slate-900/30'}`}>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className={`font-bold flex items-center gap-2 ${step.stage === stageType ? 'text-teal-400' : 'text-slate-300'}`}>
+                    {step.title}
+                    {step.stage === stageType && (
+                      <span className="text-[10px] bg-teal-500/20 text-teal-400 px-2 py-0.5 rounded border border-teal-500/30">SEARCH TARGET</span>
+                    )}
+                  </h3>
+                  <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/20 font-bold tracking-widest uppercase">Verified</span>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-x-8 gap-y-4">
                   {Object.entries(step.data).map(([key, val]: [string, any]) => (
                     <div key={key}>
-                      <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">{key.replace(/_/g, ' ')}</p>
-                      <p className="text-sm text-slate-200 font-medium">{val || 'N/A'}</p>
+                      <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1">{key.replace(/_/g, ' ')}</p>
+                      <p className="text-sm text-slate-200 font-medium break-all">{val || 'N/A'}</p>
                     </div>
                   ))}
                 </div>
