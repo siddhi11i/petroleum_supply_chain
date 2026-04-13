@@ -1129,217 +1129,6 @@ const EmissionsPage = () => (
   />
 );
 
-const ProvenanceNetworkGraph = ({ data, stageType, roleLimit }: { data: any, stageType: string, roleLimit: number }) => {
-  const svgRef = useRef<SVGSVGElement>(null);
-  const [selectedNode, setSelectedNode] = useState<any>(null);
-
-  const stages = [
-    { id: 'crude', label: 'Crude Source', icon: Droplets, color: '#3b82f6' },
-    { id: 'transport', label: 'Transportation', icon: Truck, color: '#f59e0b' },
-    { id: 'storage', label: 'Storage Batch', icon: Database, color: '#14b8a6' },
-    { id: 'refining', label: 'Refining Process', icon: Factory, color: '#a855f7' },
-    { id: 'distribution', label: 'Distribution', icon: Share2, color: '#10b981' },
-    { id: 'retail', label: 'Retail Point', icon: Store, color: '#ec4899' },
-  ];
-
-  const nodes = stages.filter((_, idx) => idx <= roleLimit).map((s, i) => ({
-    ...s,
-    hasData: !!data[s.id],
-    data: data[s.id],
-    isTarget: s.id === stageType,
-    index: i
-  }));
-
-  const links = nodes.slice(0, -1).map((n, i) => ({
-    source: n.id,
-    target: nodes[i + 1].id
-  }));
-
-  useEffect(() => {
-    if (!svgRef.current || nodes.length === 0) return;
-
-    const width = 800;
-    const height = 500;
-    const svg = d3.select(svgRef.current);
-    svg.selectAll("*").remove();
-
-    const simulation = d3.forceSimulation(nodes as any)
-      .force("link", d3.forceLink(links).id((d: any) => d.id).distance(150))
-      .force("charge", d3.forceManyBody().strength(-1000))
-      .force("center", d3.forceCenter(width / 2, height / 2))
-      .force("collision", d3.forceCollide().radius(80));
-
-    const g = svg.append("g");
-
-    // Define arrowhead
-    svg.append("defs").append("marker")
-      .attr("id", "arrowhead")
-      .attr("viewBox", "-0 -5 10 10")
-      .attr("refX", 45)
-      .attr("refY", 0)
-      .attr("orient", "auto")
-      .attr("markerWidth", 6)
-      .attr("markerHeight", 6)
-      .attr("xoverflow", "visible")
-      .append("svg:path")
-      .attr("d", "M 0,-5 L 10 ,0 L 0,5")
-      .attr("fill", "#475569")
-      .style("stroke", "none");
-
-    const link = g.append("g")
-      .selectAll("path")
-      .data(links)
-      .enter().append("path")
-      .attr("stroke", "#334155")
-      .attr("stroke-width", 2)
-      .attr("fill", "none")
-      .attr("marker-end", "url(#arrowhead)");
-
-    const node = g.append("g")
-      .selectAll("g")
-      .data(nodes)
-      .enter().append("g")
-      .attr("cursor", "pointer")
-      .on("click", (event, d) => setSelectedNode(d))
-      .call(d3.drag<any, any>()
-        .on("start", dragstarted)
-        .on("drag", dragged)
-        .on("end", dragended) as any);
-
-    // Node Background
-    node.append("circle")
-      .attr("r", 35)
-      .attr("fill", "#0f172a")
-      .attr("stroke", (d: any) => d.isTarget ? "#14b8a6" : (d.hasData ? "#10b981" : "#334155"))
-      .attr("stroke-width", (d: any) => d.isTarget ? 3 : 2)
-      .attr("class", (d: any) => d.isTarget ? "animate-pulse" : "");
-
-    // Node Icon Placeholder (using text for simplicity in D3, or we can use foreignObject)
-    node.append("text")
-      .attr("text-anchor", "middle")
-      .attr("dy", ".35em")
-      .attr("font-family", "Inter")
-      .attr("font-size", "10px")
-      .attr("fill", (d: any) => d.hasData ? "#f8fafc" : "#64748b")
-      .text((d: any) => d.label.split(' ')[0]);
-
-    // Node Label
-    node.append("text")
-      .attr("text-anchor", "middle")
-      .attr("dy", "50px")
-      .attr("font-size", "12px")
-      .attr("font-weight", "bold")
-      .attr("fill", "#94a3b8")
-      .text((d: any) => d.label);
-
-    simulation.on("tick", () => {
-      link.attr("d", (d: any) => {
-        const dx = d.target.x - d.source.x;
-        const dy = d.target.y - d.source.y;
-        const dr = Math.sqrt(dx * dx + dy * dy) * 1.5;
-        return `M${d.source.x},${d.source.y}A${dr},${dr} 0 0,1 ${d.target.x},${d.target.y}`;
-      });
-
-      node.attr("transform", (d: any) => `translate(${d.x},${d.y})`);
-    });
-
-    function dragstarted(event: any) {
-      if (!event.active) simulation.alphaTarget(0.3).restart();
-      event.subject.fx = event.subject.x;
-      event.subject.fy = event.subject.y;
-    }
-
-    function dragged(event: any) {
-      event.subject.fx = event.x;
-      event.subject.fy = event.y;
-    }
-
-    function dragended(event: any) {
-      if (!event.active) simulation.alphaTarget(0);
-      event.subject.fx = null;
-      event.subject.fy = null;
-    }
-
-    return () => simulation.stop();
-  }, [nodes, links, stageType]);
-
-  return (
-    <div className="relative bg-slate-900/50 rounded-2xl border border-slate-800 overflow-hidden h-[600px]">
-      <div className="absolute top-4 left-4 z-20 flex items-center gap-2">
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-950/80 border border-slate-800 rounded-full text-[10px] font-bold text-slate-400">
-          <Activity className="w-3 h-3 text-teal-500" />
-          INTERACTIVE NETWORK MAP
-        </div>
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-950/80 border border-slate-800 rounded-full text-[10px] font-bold text-slate-400">
-          <Maximize2 className="w-3 h-3 text-blue-500" />
-          DRAG TO REARRANGE
-        </div>
-      </div>
-
-      <svg 
-        ref={svgRef} 
-        width="100%" 
-        height="100%" 
-        viewBox="0 0 800 500" 
-        className="w-full h-full"
-      />
-
-      <AnimatePresence>
-        {selectedNode && (
-          <motion.div
-            initial={{ opacity: 0, x: 300 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 300 }}
-            className="absolute top-0 right-0 w-80 h-full bg-slate-950/95 border-l border-slate-800 p-6 z-30 shadow-2xl backdrop-blur-md overflow-y-auto"
-          >
-            <div className="flex items-center justify-between mb-8">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-slate-800 rounded-lg">
-                  <selectedNode.icon className="w-5 h-5 text-teal-400" />
-                </div>
-                <h3 className="font-bold text-white">{selectedNode.label}</h3>
-              </div>
-              <button onClick={() => setSelectedNode(null)} className="p-1 hover:bg-slate-800 rounded-md text-slate-500">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {!selectedNode.hasData ? (
-              <div className="flex flex-col items-center justify-center h-64 text-center space-y-4">
-                <div className="w-12 h-12 bg-slate-900 rounded-full flex items-center justify-center border border-slate-800">
-                  <Info className="w-6 h-6 text-slate-600" />
-                </div>
-                <p className="text-sm text-slate-500">No data available for this stage in the current batch journey.</p>
-              </div>
-            ) : (
-              <div className="space-y-6">
-                <div className="p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-xl">
-                  <div className="flex items-center gap-2 mb-2">
-                    <ShieldCheck className="w-4 h-4 text-emerald-500" />
-                    <span className="text-xs font-bold text-emerald-500 uppercase">Blockchain Verified</span>
-                  </div>
-                  <p className="text-[10px] text-slate-500 leading-relaxed">This record has been cryptographically signed and anchored to the supply chain ledger.</p>
-                </div>
-
-                <div className="space-y-4">
-                  {Object.entries(selectedNode.data).map(([key, val]: [string, any]) => (
-                    <div key={key} className="space-y-1">
-                      <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">{key.replace(/_/g, ' ')}</p>
-                      <p className="text-sm text-slate-200 font-medium break-all bg-slate-900/50 p-2 rounded-lg border border-slate-800/50">
-                        {val || 'N/A'}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-};
-
 const ProvenancePage = () => {
   const [searchId, setSearchId] = useState('');
   const [stageType, setStageType] = useState('retail');
@@ -1349,12 +1138,12 @@ const ProvenancePage = () => {
   const userRole = localStorage.getItem('role') || 'USER';
 
   const stages = [
-    { value: 'crude', label: 'Crude Source', prefix: 'C' },
-    { value: 'transport', label: 'Transportation', prefix: 'T' },
-    { value: 'storage', label: 'Storage Batch', prefix: 'S' },
-    { value: 'refining', label: 'Refining Process', prefix: 'R' },
-    { value: 'distribution', label: 'Distribution', prefix: 'D' },
-    { value: 'retail', label: 'Retail Point', prefix: 'RT' },
+    { value: 'crude', label: 'Crude Source', prefix: 'C', icon: Droplets },
+    { value: 'transport', label: 'Transportation', prefix: 'T', icon: Truck },
+    { value: 'storage', label: 'Storage Batch', prefix: 'S', icon: Database },
+    { value: 'refining', label: 'Refining Process', prefix: 'R', icon: Factory },
+    { value: 'distribution', label: 'Distribution', prefix: 'D', icon: Share2 },
+    { value: 'retail', label: 'Retail Point', prefix: 'RT', icon: Store },
   ];
 
   const roleStageLimit: Record<string, number> = {
@@ -1366,6 +1155,15 @@ const ProvenancePage = () => {
     'RETAIL_MANAGER': 5,
     'ENVIRONMENT_MANAGER': 5,
     'ADMIN': 5
+  };
+
+  const roleToStage: Record<string, string> = {
+    'CRUDE_MANAGER': 'crude',
+    'TRANSPORT_MANAGER': 'transport',
+    'STORAGE_MANAGER': 'storage',
+    'REFINING_MANAGER': 'refining',
+    'DISTRIBUTION_MANAGER': 'distribution',
+    'RETAIL_MANAGER': 'retail'
   };
 
   const fetchProvenance = async () => {
@@ -1435,37 +1233,102 @@ const ProvenancePage = () => {
 
       {provenance && (
         <div className="space-y-8">
-          <ProvenanceNetworkGraph 
-            data={provenance} 
-            stageType={stageType} 
-            roleLimit={roleStageLimit[userRole] ?? -1} 
-          />
+          {/* Horizontal Line Visualization */}
+          <div className="bg-slate-900/50 p-12 rounded-2xl border border-slate-800 overflow-x-auto">
+            <div className="min-w-[800px] relative flex justify-between items-center px-12">
+              {/* Background Line */}
+              <div className="absolute left-12 right-12 h-1 bg-slate-800 top-1/2 -translate-y-1/2 rounded-full overflow-hidden">
+                <motion.div 
+                  initial={{ width: 0 }}
+                  animate={{ width: '100%' }}
+                  transition={{ duration: 1.5, ease: "easeInOut" }}
+                  className="h-full bg-gradient-to-r from-teal-500 via-emerald-500 to-teal-500 shadow-[0_0_10px_rgba(20,184,166,0.5)]"
+                />
+              </div>
 
-          {/* Quick Summary Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            {[
-              { title: 'Crude', data: provenance.crude, icon: Droplets, stage: 'crude' },
-              { title: 'Transport', data: provenance.transport, icon: Truck, stage: 'transport' },
-              { title: 'Storage', data: provenance.storage, icon: Database, stage: 'storage' },
-              { title: 'Refining', data: provenance.refining, icon: Factory, stage: 'refining' },
-              { title: 'Distribution', data: provenance.distribution, icon: Share2, stage: 'distribution' },
-              { title: 'Retail', data: provenance.retail, icon: Store, stage: 'retail' },
-            ].filter((_, idx) => {
+              {stages.filter((_, idx) => {
+                const limit = roleStageLimit[userRole] ?? -1;
+                return idx <= limit;
+              }).map((step, idx) => {
+                const isManagerStage = roleToStage[userRole] === step.value;
+                const hasData = !!provenance[step.value];
+                
+                return (
+                  <motion.div 
+                    key={idx}
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: idx * 0.1 }}
+                    className="relative z-10 flex flex-col items-center gap-4"
+                  >
+                    <div className={`w-16 h-16 rounded-full flex items-center justify-center border-2 transition-all duration-500
+                      ${hasData ? 'bg-slate-950' : 'bg-slate-900 opacity-50'}
+                      ${isManagerStage 
+                        ? 'border-teal-400 shadow-[0_0_30px_rgba(45,212,191,0.6)] ring-8 ring-teal-500/10 scale-110' 
+                        : hasData ? 'border-emerald-500/50' : 'border-slate-700'}`}
+                    >
+                      <step.icon className={`w-6 h-6 ${isManagerStage ? 'text-teal-400 animate-pulse' : hasData ? 'text-emerald-400' : 'text-slate-600'}`} />
+                    </div>
+                    <div className="text-center">
+                      <p className={`text-xs font-bold uppercase tracking-widest ${isManagerStage ? 'text-teal-400' : 'text-slate-500'}`}>
+                        {step.label.split(' ')[0]}
+                      </p>
+                      {hasData && (
+                        <p className="text-[10px] text-emerald-500 font-bold mt-1">VERIFIED</p>
+                      )}
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Detailed Cards Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {stages.filter((_, idx) => {
               const limit = roleStageLimit[userRole] ?? -1;
               return idx <= limit;
-            }).map((step, idx) => (
-              <Card 
-                key={idx} 
-                className={`p-4 border-slate-800 transition-all duration-300 ${step.data ? 'bg-slate-900/40' : 'bg-slate-950 opacity-40'}`}
+            }).map((step, idx) => provenance[step.value] && (
+              <motion.div 
+                key={idx}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.1 }}
               >
-                <div className="flex items-center gap-3 mb-2">
-                  <step.icon className={`w-4 h-4 ${step.data ? 'text-teal-400' : 'text-slate-600'}`} />
-                  <span className="text-xs font-bold text-slate-300">{step.title}</span>
-                </div>
-                <p className="text-[10px] text-slate-500 font-medium truncate">
-                  {step.data ? 'Record Found' : 'No Data'}
-                </p>
-              </Card>
+                <Card className={`overflow-hidden border-slate-800 h-full transition-all duration-300 hover:border-slate-700
+                  ${roleToStage[userRole] === step.value ? 'bg-teal-500/5 border-teal-500/30' : 'bg-slate-900/40'}`}
+                >
+                  <div className="p-6">
+                    <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-center gap-3">
+                        <div className={`p-2 rounded-lg ${roleToStage[userRole] === step.value ? 'bg-teal-500/10' : 'bg-slate-800/50'}`}>
+                          <step.icon className={`w-5 h-5 ${roleToStage[userRole] === step.value ? 'text-teal-400' : 'text-slate-400'}`} />
+                        </div>
+                        <h3 className={`font-bold text-lg ${roleToStage[userRole] === step.value ? 'text-teal-400' : 'text-slate-200'}`}>
+                          {step.label}
+                        </h3>
+                      </div>
+                      {roleToStage[userRole] === step.value && (
+                        <span className="text-[9px] bg-teal-500/20 text-teal-400 px-2 py-0.5 rounded-full border border-teal-500/30 font-bold tracking-tighter">YOUR STAGE</span>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-4">
+                      {Object.entries(provenance[step.value]).map(([key, val]: [string, any]) => (
+                        <div key={key} className="space-y-1">
+                          <p className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">
+                            {key.replace(/_/g, ' ')}
+                          </p>
+                          <p className="text-xs text-slate-200 font-medium break-all bg-slate-950/30 p-2 rounded border border-slate-800/50">
+                            {val || 'N/A'}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className={`h-1 w-full ${roleToStage[userRole] === step.value ? 'bg-teal-500/50' : 'bg-slate-800/30'}`} />
+                </Card>
+              </motion.div>
             ))}
           </div>
         </div>
