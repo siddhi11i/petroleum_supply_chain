@@ -53,7 +53,7 @@ const api = axios.create({
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
-  if (token) {
+  if (token && token !== 'null' && token !== 'undefined') {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
@@ -200,6 +200,7 @@ const DataPage = ({
   const [data, setData] = useState<any[]>([]);
   const [filteredData, setFilteredData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -216,7 +217,8 @@ const DataPage = ({
     '/storage_batch': 'STORAGE_MANAGER',
     '/refining_process': 'REFINING_MANAGER',
     '/distribution': 'DISTRIBUTION_MANAGER',
-    '/retail': 'RETAIL_MANAGER'
+    '/retail': 'RETAIL_MANAGER',
+    '/co2_emissions': 'ENVIRONMENT_MANAGER'
   };
 
   const canEdit = userRole === 'ADMIN' || userRole === roleMapping[endpoint];
@@ -226,8 +228,9 @@ const DataPage = ({
       const res = await api.get(endpoint);
       setData(res.data);
       setFilteredData(res.data);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setFetchError(err.response?.data?.error || 'Failed to fetch data');
     } finally {
       setLoading(false);
     }
@@ -278,7 +281,7 @@ const DataPage = ({
       fetchData();
     } catch (err: any) {
       console.error('Submission error:', err);
-      const errorMessage = err.response?.data?.error || 'Failed to add record. Please check your data and try again.';
+      const errorMessage = err.response?.data?.error || err.message || 'Failed to add record. Please check your data and try again.';
       setSubmissionError(errorMessage);
     } finally {
       setSubmitting(false);
@@ -302,6 +305,13 @@ const DataPage = ({
           </Button>
         )}
       </div>
+
+      {fetchError && (
+        <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4" />
+          {fetchError}
+        </div>
+      )}
 
       <Card className="overflow-hidden">
         <div className="p-4 border-b border-slate-800 flex flex-col sm:flex-row gap-4 items-center justify-between bg-slate-900/30">
@@ -555,6 +565,7 @@ const Header = ({ onMenuClick }: { onMenuClick: () => void }) => {
 // --- Pages ---
 
 const LoginPage = () => {
+  const [step, setStep] = useState(1); // 1: Role Selection, 2: Login/Register
   const [isLogin, setIsLogin] = useState(true);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -563,14 +574,14 @@ const LoginPage = () => {
   const navigate = useNavigate();
 
   const roles = [
-    { value: 'CRUDE_MANAGER', label: 'Crude Manager' },
-    { value: 'TRANSPORT_MANAGER', label: 'Transport Manager' },
-    { value: 'STORAGE_MANAGER', label: 'Storage Manager' },
-    { value: 'REFINING_MANAGER', label: 'Refining Manager' },
-    { value: 'DISTRIBUTION_MANAGER', label: 'Distribution Manager' },
-    { value: 'RETAIL_MANAGER', label: 'Retail Manager' },
-    { value: 'ENVIRONMENT_MANAGER', label: 'Environment Manager' },
-    { value: 'ADMIN', label: 'Administrator' },
+    { value: 'CRUDE_MANAGER', label: 'Crude Manager', icon: Droplets, desc: 'Manage crude oil procurement and sourcing' },
+    { value: 'TRANSPORT_MANAGER', label: 'Transport Manager', icon: Truck, desc: 'Oversee logistics and fleet movements' },
+    { value: 'STORAGE_MANAGER', label: 'Storage Manager', icon: Database, desc: 'Monitor tank levels and inspections' },
+    { value: 'REFINING_MANAGER', label: 'Refining Manager', icon: Factory, desc: 'Control refining processes and additives' },
+    { value: 'DISTRIBUTION_MANAGER', label: 'Distribution Manager', icon: Share2, desc: 'Manage dispatch and consumer delivery' },
+    { value: 'RETAIL_MANAGER', label: 'Retail Manager', icon: Store, desc: 'Oversee gas station inventory and sales' },
+    { value: 'ENVIRONMENT_MANAGER', label: 'Environment Manager', icon: Leaf, desc: 'Monitor CO2 emissions and sustainability' },
+    { value: 'ADMIN', label: 'Administrator', icon: ShieldCheck, desc: 'Full system access and user management' },
   ];
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -604,7 +615,7 @@ const LoginPage = () => {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-md"
+        className="w-full max-w-4xl"
       >
         <div className="text-center mb-8">
           <div className="w-16 h-16 bg-teal-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-2xl shadow-teal-900/40">
@@ -614,66 +625,115 @@ const LoginPage = () => {
           <p className="text-slate-400">Secure Supply Chain Management System</p>
         </div>
 
-        <Card className="p-8 border-slate-800 bg-slate-900/80">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-300">Username</label>
-              <Input 
-                type="text" 
-                placeholder="Enter your username" 
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-300">Password</label>
-              <Input 
-                type="password" 
-                placeholder="••••••••" 
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </div>
-
-            {!isLogin && (
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-slate-300">Role</label>
-                <select 
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-slate-200 focus:ring-2 focus:ring-teal-500/50"
-                  value={role}
-                  onChange={e => setRole(e.target.value)}
-                >
-                  {roles.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-                </select>
-              </div>
-            )}
-
-            {error && (
-              <motion.p 
-                initial={{ opacity: 0 }} 
-                animate={{ opacity: 1 }} 
-                className="text-red-400 text-sm bg-red-400/10 p-3 rounded-lg border border-red-400/20"
-              >
-                {error}
-              </motion.p>
-            )}
-
-            <Button type="submit" className="w-full py-3">
-              {isLogin ? 'Sign In' : 'Create Account'}
-            </Button>
-          </form>
-
-          <div className="mt-6 text-center">
-            <button 
-              onClick={() => setIsLogin(!isLogin)}
-              className="text-teal-400 hover:text-teal-300 text-sm font-medium transition-colors"
+        <AnimatePresence mode="wait">
+          {step === 1 ? (
+            <motion.div
+              key="role-selection"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              className="space-y-6"
             >
-              {isLogin ? "Don't have an account? Register" : "Already have an account? Login"}
-            </button>
-          </div>
-        </Card>
+              <div className="text-center mb-8">
+                <h2 className="text-xl font-semibold text-white">Select Your Professional Role</h2>
+                <p className="text-slate-500 text-sm">Choose the module you are authorized to manage</p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {roles.map((r) => (
+                  <button
+                    key={r.value}
+                    onClick={() => { setRole(r.value); setStep(2); }}
+                    className={`p-6 rounded-2xl border text-left transition-all duration-300 group ${
+                      role === r.value 
+                        ? 'bg-teal-600/20 border-teal-500 shadow-lg shadow-teal-500/10' 
+                        : 'bg-slate-900/50 border-slate-800 hover:border-slate-700 hover:bg-slate-800/50'
+                    }`}
+                  >
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 transition-colors ${
+                      role === r.value ? 'bg-teal-500 text-white' : 'bg-slate-800 text-slate-400 group-hover:text-teal-400'
+                    }`}>
+                      <r.icon className="w-6 h-6" />
+                    </div>
+                    <h3 className="font-bold text-white mb-1">{r.label}</h3>
+                    <p className="text-xs text-slate-500 leading-relaxed">{r.desc}</p>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="auth-form"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="max-w-md mx-auto"
+            >
+              <Card className="p-8 border-slate-800 bg-slate-900/80">
+                <div className="mb-6 flex items-center gap-4 p-4 bg-teal-500/5 rounded-xl border border-teal-500/10">
+                  <div className="w-10 h-10 bg-teal-500/20 rounded-lg flex items-center justify-center text-teal-400">
+                    {roles.find(r => r.value === role)?.icon && React.createElement(roles.find(r => r.value === role)!.icon, { className: 'w-5 h-5' })}
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Selected Role</p>
+                    <p className="text-sm text-white font-medium">{roles.find(r => r.value === role)?.label}</p>
+                  </div>
+                  <button 
+                    onClick={() => setStep(1)}
+                    className="ml-auto text-xs text-teal-500 hover:text-teal-400 font-bold"
+                  >
+                    Change
+                  </button>
+                </div>
+
+                <form onSubmit={handleSubmit} className="space-y-6">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-300">Username</label>
+                    <Input 
+                      type="text" 
+                      placeholder="Enter your username" 
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-slate-300">Password</label>
+                    <Input 
+                      type="password" 
+                      placeholder="••••••••" 
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  {error && (
+                    <motion.p 
+                      initial={{ opacity: 0 }} 
+                      animate={{ opacity: 1 }} 
+                      className="text-red-400 text-sm bg-red-400/10 p-3 rounded-lg border border-red-400/20"
+                    >
+                      {error}
+                    </motion.p>
+                  )}
+
+                  <Button type="submit" className="w-full py-3">
+                    {isLogin ? 'Sign In' : 'Create Account'}
+                  </Button>
+                </form>
+
+                <div className="mt-6 text-center">
+                  <button 
+                    onClick={() => setIsLogin(!isLogin)}
+                    className="text-sm text-slate-400 hover:text-teal-400 transition-colors"
+                  >
+                    {isLogin ? "Don't have an account? Register" : "Already have an account? Login"}
+                  </button>
+                </div>
+              </Card>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
     </div>
   );
@@ -683,6 +743,7 @@ const Dashboard = () => {
   const [stats, setStats] = useState<any>({ counts: {}, growth: {}, inventory: [] });
   const [alerts, setAlerts] = useState<any>({ stockAlerts: [], storageAlerts: [] });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'real-time' | 'historical'>('real-time');
 
   useEffect(() => {
@@ -695,8 +756,9 @@ const Dashboard = () => {
         ]);
         setStats(statsRes.data);
         setAlerts(alertsRes.data);
-      } catch (err) {
+      } catch (err: any) {
         console.error(err);
+        setError(err.response?.data?.error || 'Failed to fetch dashboard data');
       } finally {
         setLoading(false);
       }
@@ -735,6 +797,13 @@ const Dashboard = () => {
           </button>
         </div>
       </div>
+
+      {error && (
+        <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4" />
+          {error}
+        </div>
+      )}
 
       {(alerts.stockAlerts.length > 0 || alerts.storageAlerts.length > 0) && (
         <motion.div 
@@ -972,9 +1041,9 @@ const ProvenancePage = () => {
       } else {
         setProvenance(res.data);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setError('Record not found');
+      setError(err.response?.data?.error || 'Record not found');
     } finally {
       setLoading(false);
     }
@@ -1057,7 +1126,9 @@ const LedgerPage = () => null; // Removed ledger section
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const token = localStorage.getItem('token');
-  if (!token) return <Navigate to="/login" replace />;
+  if (!token || token === 'null' || token === 'undefined') {
+    return <Navigate to="/login" replace />;
+  }
   return <>{children}</>;
 };
 

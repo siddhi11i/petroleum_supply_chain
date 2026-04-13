@@ -54,10 +54,14 @@ const authenticateToken = (req: any, res: any, next: any) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
-  if (!token) return res.sendStatus(401);
+  if (!token || token === 'null' || token === 'undefined') {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
 
   jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
-    if (err) return res.sendStatus(403);
+    if (err) {
+      return res.status(401).json({ error: 'Session expired. Please login again.' });
+    }
     req.user = user;
     next();
   });
@@ -164,7 +168,7 @@ const createCRUDRoutes = (tableName: string, idField: string) => {
   });
 
   // PUT update (Correction with Snapshot)
-  app.put(`/api/${tableName.toLowerCase()}/:id`, authenticateToken, async (req, res) => {
+  app.put(`/api/${tableName.toLowerCase()}/:id`, authenticateToken, checkRole, async (req, res) => {
     const { id } = req.params;
     const { signature, ...data } = req.body;
     
