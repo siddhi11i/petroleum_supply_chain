@@ -280,6 +280,55 @@ app.get('/api/ledger/reconstruct/:tableName/:recordId', authenticateToken, async
   }
 });
 
+// Available IDs for Workflow Stages
+app.get('/api/workflow/available-ids/:stage', authenticateToken, async (req, res) => {
+  const { stage } = req.params;
+  
+  const stageConfig: Record<string, { table: string, idField: string, prefix: string, prevTable: string, prevIdField: string, prevPrefix: string }> = {
+    'transport': { 
+      table: 'Transportation_Log', idField: 'Transit_ID', prefix: 'T',
+      prevTable: 'Crude_Purchase', prevIdField: 'Purchase_ID', prevPrefix: 'C' 
+    },
+    'storage': { 
+      table: 'Storage_Batch', idField: 'Batch_ID', prefix: 'S',
+      prevTable: 'Transportation_Log', prevIdField: 'Transit_ID', prevPrefix: 'T' 
+    },
+    'refining': { 
+      table: 'Refining_Process', idField: 'Refine_ID', prefix: 'R',
+      prevTable: 'Storage_Batch', prevIdField: 'Batch_ID', prevPrefix: 'S' 
+    },
+    'distribution': { 
+      table: 'Distribution', idField: 'Distribution_ID', prefix: 'D',
+      prevTable: 'Refining_Process', prevIdField: 'Refine_ID', prevPrefix: 'R' 
+    },
+    'retail': { 
+      table: 'Retail', idField: 'Retail_ID', prefix: 'RT',
+      prevTable: 'Distribution', prevIdField: 'Distribution_ID', prevPrefix: 'D' 
+    }
+  };
+
+  const config = stageConfig[stage.toLowerCase()];
+  if (!config) return res.status(400).json({ error: 'Invalid stage' });
+
+  try {
+    // Get all numeric IDs from previous stage
+    const prevRows: any = await query(`SELECT ${config.prevIdField} FROM ${config.prevTable}`);
+    const prevNumericIds = prevRows.map((row: any) => row[config.prevIdField].replace(config.prevPrefix, ''));
+
+    // Get all numeric IDs from current stage
+    const currentRows: any = await query(`SELECT ${config.idField} FROM ${config.table}`);
+    const currentNumericIds = new Set(currentRows.map((row: any) => row[config.idField].replace(config.prefix, '')));
+
+    // Filter out IDs already used in current stage
+    const availableNumericIds = prevNumericIds.filter((id: string) => !currentNumericIds.has(id));
+
+    res.json(availableNumericIds);
+  } catch (err: any) {
+    console.error('Workflow IDs error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Dashboard Stats
 app.get('/api/stats', authenticateToken, async (req, res) => {
   const tables = ['Crude_Purchase', 'Transportation_Log', 'Storage_Batch', 'Refining_Process', 'Distribution', 'Retail', 'CO2_Emissions'];

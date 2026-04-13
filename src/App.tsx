@@ -188,7 +188,11 @@ const DataPage = ({
   endpoint, 
   idField, 
   fields, 
-  icon: Icon 
+  icon: Icon,
+  workflowStage,
+  prefix,
+  prevPrefix,
+  prevIdField
 }: { 
   title: string; 
   description: string; 
@@ -196,6 +200,10 @@ const DataPage = ({
   idField: string; 
   fields: { name: string; label: string; type: string; options?: string[] }[];
   icon: any;
+  workflowStage?: 'crude' | 'transport' | 'storage' | 'refining' | 'distribution' | 'retail';
+  prefix?: string;
+  prevPrefix?: string;
+  prevIdField?: string;
 }) => {
   const [data, setData] = useState<any[]>([]);
   const [filteredData, setFilteredData] = useState<any[]>([]);
@@ -206,6 +214,7 @@ const DataPage = ({
   const [showConfirm, setShowConfirm] = useState(false);
   const [submissionError, setSubmissionError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [availableIds, setAvailableIds] = useState<string[]>([]);
   const [formData, setFormData] = useState<any>(
     fields.reduce((acc, f) => ({ ...acc, [f.name]: f.type === 'number' ? '' : (f.options ? f.options[0] : '') }), { signature: '' })
   );
@@ -235,6 +244,32 @@ const DataPage = ({
       setLoading(false);
     }
   };
+
+  const fetchAvailableIds = async () => {
+    if (!workflowStage || workflowStage === 'crude') return;
+    try {
+      const res = await api.get(`/workflow/available-ids/${workflowStage}`);
+      setAvailableIds(res.data);
+      if (res.data.length > 0) {
+        const firstId = res.data[0];
+        setFormData((prev: any) => {
+          const newData = { ...prev, [idField]: firstId };
+          if (prevIdField && prevPrefix) {
+            newData[prevIdField] = `${prevPrefix}${firstId}`;
+          }
+          return newData;
+        });
+      }
+    } catch (err) {
+      console.error('Failed to fetch available IDs:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (showModal && workflowStage && workflowStage !== 'crude') {
+      fetchAvailableIds();
+    }
+  }, [showModal, workflowStage]);
 
   useEffect(() => {
     fetchData();
@@ -268,6 +303,12 @@ const DataPage = ({
     try {
       // Ensure number fields are sent as numbers
       const submissionData = { ...formData };
+      
+      // Handle Workflow ID Prefixing
+      if (workflowStage && prefix) {
+        submissionData[idField] = `${prefix}${formData[idField]}`;
+      }
+
       fields.forEach(f => {
         if (f.type === 'number' && submissionData[f.name] !== '') {
           submissionData[f.name] = Number(submissionData[f.name]);
@@ -374,7 +415,47 @@ const DataPage = ({
             {fields.map(f => (
               <div key={f.name} className="space-y-1">
                 <label className="text-xs font-bold text-slate-500 uppercase">{f.label}</label>
-                {f.options ? (
+                {f.name === idField && workflowStage ? (
+                  <div className="flex gap-2">
+                    <div className="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-teal-400 font-bold min-w-[3rem] flex items-center justify-center">
+                      {prefix}
+                    </div>
+                    {workflowStage === 'crude' ? (
+                      <Input 
+                        type="number"
+                        placeholder="Numeric ID (e.g. 1234)"
+                        value={formData[f.name]}
+                        onChange={e => setFormData({...formData, [f.name]: e.target.value})}
+                        required
+                        className="flex-1"
+                      />
+                    ) : (
+                      <select 
+                        className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-slate-200 focus:ring-2 focus:ring-teal-500/50"
+                        value={formData[f.name]}
+                        onChange={e => {
+                          const val = e.target.value;
+                          const newData = { ...formData, [f.name]: val };
+                          if (prevIdField && prevPrefix) {
+                            newData[prevIdField] = `${prevPrefix}${val}`;
+                          }
+                          setFormData(newData);
+                        }}
+                        required
+                      >
+                        {availableIds.length === 0 ? (
+                          <option value="">No available IDs from previous stage</option>
+                        ) : (
+                          availableIds.map(id => <option key={id} value={id}>{id}</option>)
+                        )}
+                      </select>
+                    )}
+                  </div>
+                ) : f.name === prevIdField && workflowStage && workflowStage !== 'crude' ? (
+                  <div className="bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-2 text-slate-400 font-mono text-sm">
+                    {formData[f.name] || 'Select numeric ID first'}
+                  </div>
+                ) : f.options ? (
                   <select 
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-slate-200 focus:ring-2 focus:ring-teal-500/50"
                     value={formData[f.name]}
@@ -904,6 +985,8 @@ const CrudePurchasePage = () => (
     endpoint="/crude_purchase"
     idField="Purchase_ID"
     icon={Droplets}
+    workflowStage="crude"
+    prefix="C"
     fields={[
       { name: 'Purchase_ID', label: 'Purchase ID', type: 'text' },
       { name: 'Volume', label: 'Volume (BBL)', type: 'number' },
@@ -921,6 +1004,10 @@ const TransportationPage = () => (
     endpoint="/transportation_log"
     idField="Transit_ID"
     icon={Truck}
+    workflowStage="transport"
+    prefix="T"
+    prevPrefix="C"
+    prevIdField="Purchase_ID"
     fields={[
       { name: 'Transit_ID', label: 'Transit ID', type: 'text' },
       { name: 'Vehicle_ID', label: 'Vehicle ID', type: 'text' },
@@ -942,6 +1029,10 @@ const StoragePage = () => (
     endpoint="/storage_batch"
     idField="Batch_ID"
     icon={Database}
+    workflowStage="storage"
+    prefix="S"
+    prevPrefix="T"
+    prevIdField="Transit_ID"
     fields={[
       { name: 'Batch_ID', label: 'Batch ID', type: 'text' },
       { name: 'Tank_Number', label: 'Tank No.', type: 'number' },
@@ -959,6 +1050,10 @@ const RefiningPage = () => (
     endpoint="/refining_process"
     idField="Refine_ID"
     icon={Factory}
+    workflowStage="refining"
+    prefix="R"
+    prevPrefix="S"
+    prevIdField="Batch_ID"
     fields={[
       { name: 'Refine_ID', label: 'Refine ID', type: 'text' },
       { name: 'Input_Volume', label: 'Input Vol', type: 'number' },
@@ -977,6 +1072,10 @@ const DistributionPage = () => (
     endpoint="/distribution"
     idField="Distribution_ID"
     icon={Share2}
+    workflowStage="distribution"
+    prefix="D"
+    prevPrefix="R"
+    prevIdField="Refine_ID"
     fields={[
       { name: 'Distribution_ID', label: 'Dist. ID', type: 'text' },
       { name: 'Dispatch_Volume', label: 'Dispatch Vol', type: 'number' },
@@ -995,6 +1094,10 @@ const RetailPage = () => (
     endpoint="/retail"
     idField="Retail_ID"
     icon={Store}
+    workflowStage="retail"
+    prefix="RT"
+    prevPrefix="D"
+    prevIdField="Distribution_ID"
     fields={[
       { name: 'Retail_ID', label: 'Retail ID', type: 'text' },
       { name: 'Station_ID', label: 'Station ID', type: 'text' },
