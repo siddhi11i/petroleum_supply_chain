@@ -255,7 +255,7 @@ app.get('/api/provenance/:type/:id', authenticateToken, async (req, res) => {
     // Check if at least the requested record exists
     const requestedRecord = provenance[type];
     if (!requestedRecord) {
-      return res.status(404).json({ error: `Record ${id} not found in ${type} stage` });
+      return res.json({ ...provenance, error: `Record ${id} not found in ${type} stage` });
     }
 
     res.json(provenance);
