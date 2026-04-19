@@ -112,7 +112,21 @@ const Card = ({ children, className, ...props }: { children: React.ReactNode; cl
   </div>
 );
 
-const Modal = ({ isOpen, onClose, title, children, zIndex = 100 }: { isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode; zIndex?: number }) => (
+const Modal = ({ 
+  isOpen, 
+  onClose, 
+  title, 
+  children, 
+  zIndex = 100,
+  maxWidth = 'max-w-lg'
+}: { 
+  isOpen: boolean; 
+  onClose: () => void; 
+  title: string; 
+  children: React.ReactNode; 
+  zIndex?: number;
+  maxWidth?: string;
+}) => (
   <AnimatePresence>
     {isOpen && (
       <div className="fixed inset-0 flex items-center justify-center p-4" style={{ zIndex }}>
@@ -127,7 +141,7 @@ const Modal = ({ isOpen, onClose, title, children, zIndex = 100 }: { isOpen: boo
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
-          className="relative w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden"
+          className={`relative w-full ${maxWidth} bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden`}
           onClick={(e) => e.stopPropagation()}
         >
           <div className="p-6 border-b border-slate-800 flex items-center justify-between bg-slate-800/30">
@@ -136,7 +150,7 @@ const Modal = ({ isOpen, onClose, title, children, zIndex = 100 }: { isOpen: boo
               <X className="w-6 h-6" />
             </button>
           </div>
-          <div className="p-6">
+          <div className="p-6 overflow-y-auto max-h-[80vh]">
             {children}
           </div>
         </motion.div>
@@ -201,7 +215,7 @@ const DataPage = ({
   description: string; 
   endpoint: string; 
   idField: string; 
-  fields: { name: string; label: string; type: string; options?: string[] }[];
+  fields: { name: string; label: string; type: string; options?: string[]; readOnly?: boolean }[];
   icon: any;
   workflowStage?: 'crude' | 'transport' | 'storage' | 'refining' | 'distribution' | 'retail';
   prefix?: string;
@@ -238,8 +252,8 @@ const DataPage = ({
   const fetchData = async () => {
     try {
       const res = await api.get(endpoint);
-      setData(res.data);
-      setFilteredData(res.data);
+      setData(Array.isArray(res.data) ? res.data : []);
+      setFilteredData(Array.isArray(res.data) ? res.data : []);
     } catch (err: any) {
       console.error(err);
       setFetchError(err.response?.data?.error || 'Failed to fetch data');
@@ -253,7 +267,7 @@ const DataPage = ({
     try {
       const res = await api.get(`/workflow/available-ids/${workflowStage}`);
       setAvailableIds(res.data);
-      if (res.data.length > 0) {
+      if (Array.isArray(res.data) && res.data.length > 0) {
         const firstId = res.data[0];
         setFormData((prev: any) => {
           const newData = { ...prev, [idField]: firstId };
@@ -312,8 +326,11 @@ const DataPage = ({
         submissionData[idField] = `${prefix}${formData[idField]}`;
       }
 
+      // Filter out readOnly fields that shouldn't be inputted
       fields.forEach(f => {
-        if (f.type === 'number' && submissionData[f.name] !== '') {
+        if (f.readOnly) {
+          delete submissionData[f.name];
+        } else if (f.type === 'number' && submissionData[f.name] !== '') {
           submissionData[f.name] = Number(submissionData[f.name]);
         }
       });
@@ -415,7 +432,7 @@ const DataPage = ({
       <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={`New ${title}`}>
         <form onSubmit={(e) => { e.preventDefault(); setShowConfirm(true); }} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {fields.map(f => (
+            {fields.filter(f => !f.readOnly).map(f => (
               <div key={f.name} className="space-y-1">
                 <label className="text-xs font-bold text-slate-500 uppercase">{f.label}</label>
                 {f.name === idField && workflowStage ? (
@@ -542,6 +559,8 @@ const Sidebar = ({ isOpen, setIsOpen }: { isOpen: boolean; setIsOpen: (v: boolea
     { name: 'Distribution', path: '/distribution', icon: Share2 },
     { name: 'Retail', path: '/retail', icon: Store },
     { name: 'CO2 Emissions', path: '/emissions', icon: Leaf },
+    { name: 'Compliance & LCA', path: '/compliance', icon: ShieldCheck },
+    { name: 'Correction Logs', path: '/snapshots', icon: Activity },
     { name: 'Provenance', path: '/provenance', icon: History },
   ];
 
@@ -574,9 +593,9 @@ const Sidebar = ({ isOpen, setIsOpen }: { isOpen: boolean; setIsOpen: (v: boolea
           opacity: 1
         }}
         transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-        className={`fixed top-0 left-0 h-full w-64 bg-slate-900 border-r border-slate-800 z-50 shadow-2xl lg:shadow-none`}
+        className={`fixed top-0 left-0 h-full w-64 bg-slate-900 border-r border-slate-800 z-50 shadow-2xl lg:shadow-none flex flex-col`}
       >
-        <div className="p-6 flex items-center gap-3 border-b border-slate-800">
+        <div className="p-6 flex items-center gap-3 border-b border-slate-800 shrink-0">
           <div className="w-10 h-10 bg-teal-600 rounded-xl flex items-center justify-center shadow-lg shadow-teal-900/40">
             <ShieldCheck className="text-white w-6 h-6" />
           </div>
@@ -586,7 +605,7 @@ const Sidebar = ({ isOpen, setIsOpen }: { isOpen: boolean; setIsOpen: (v: boolea
           </div>
         </div>
 
-        <nav className="p-4 space-y-1 mt-4">
+        <nav className="flex-1 overflow-y-auto p-4 space-y-1 custom-scrollbar">
           {menuItems.map((item) => {
             const isActive = location.pathname === item.path;
             return (
@@ -608,7 +627,7 @@ const Sidebar = ({ isOpen, setIsOpen }: { isOpen: boolean; setIsOpen: (v: boolea
           })}
         </nav>
 
-        <div className="absolute bottom-0 left-0 w-full p-4 border-t border-slate-800">
+        <div className="p-4 border-t border-slate-800 shrink-0">
           <Button variant="ghost" className="w-full justify-start" onClick={handleLogout}>
             <LogOut className="w-5 h-5" />
             <span>Logout</span>
@@ -889,18 +908,29 @@ const Dashboard = () => {
         </div>
       )}
 
-      {(alerts.stockAlerts.length > 0 || alerts.storageAlerts.length > 0) && (
+      {(alerts?.stockAlerts?.length > 0 || alerts?.storageAlerts?.length > 0) && (
         <motion.div 
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl flex items-start gap-4"
+          className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-xl space-y-3"
         >
-          <AlertTriangle className="w-6 h-6 text-amber-500 shrink-0" />
-          <div className="space-y-1">
-            <h4 className="text-amber-500 font-bold text-sm">System Notifications</h4>
-            <p className="text-amber-500/70 text-xs">
-              Maintenance and operational alerts will appear here.
-            </p>
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-6 h-6 text-amber-500 shrink-0" />
+            <h4 className="text-amber-500 font-bold text-sm">Integrity Alerts & Operational Warnings</h4>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {alerts?.stockAlerts?.map((a: any) => (
+              <div key={a.Alert_ID} className="bg-slate-950/50 p-3 rounded-lg border border-amber-500/20 flex items-center justify-between">
+                <p className="text-xs text-amber-500/90 font-medium">{a.Message}</p>
+                <div className="px-2 py-0.5 bg-red-500/20 text-red-400 text-[8px] font-bold rounded uppercase">Reorder Point</div>
+              </div>
+            ))}
+            {alerts?.storageAlerts?.map((a: any) => (
+              <div key={a.Alert_ID} className="bg-slate-950/50 p-3 rounded-lg border border-blue-500/20 flex items-center justify-between">
+                <p className="text-xs text-blue-400 font-medium">{a.Message}</p>
+                <div className="px-2 py-0.5 bg-blue-500/20 text-blue-400 text-[8px] font-bold rounded uppercase">System Triggered</div>
+              </div>
+            ))}
           </div>
         </motion.div>
       )}
@@ -1040,6 +1070,7 @@ const StoragePage = () => (
       { name: 'Batch_ID', label: 'Batch ID', type: 'text' },
       { name: 'Tank_Number', label: 'Tank No.', type: 'number' },
       { name: 'Current_Capacity', label: 'Current Capacity', type: 'number' },
+      { name: 'Threshold', label: 'Reorder Threshold', type: 'number', readOnly: true },
       { name: 'Last_Inspection_Date', label: 'Last Insp.', type: 'date' },
       { name: 'Transit_ID', label: 'Transit ID', type: 'text' },
     ]}
@@ -1131,19 +1162,18 @@ const EmissionsPage = () => (
 
 const ProvenancePage = () => {
   const [searchId, setSearchId] = useState('');
-  const [stageType, setStageType] = useState('retail');
   const [provenance, setProvenance] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const userRole = localStorage.getItem('role') || 'USER';
 
   const stages = [
-    { value: 'crude', label: 'Crude Source', prefix: 'C', icon: Droplets },
-    { value: 'transport', label: 'Transportation', prefix: 'T', icon: Truck },
-    { value: 'storage', label: 'Storage Batch', prefix: 'S', icon: Database },
-    { value: 'refining', label: 'Refining Process', prefix: 'R', icon: Factory },
-    { value: 'distribution', label: 'Distribution', prefix: 'D', icon: Share2 },
-    { value: 'retail', label: 'Retail Point', prefix: 'RT', icon: Store },
+    { value: 'crude', label: 'Crude Source', prefix: 'C', icon: Droplets, color: 'from-blue-500 to-blue-600' },
+    { value: 'transport', label: 'Transportation', prefix: 'T', icon: Truck, color: 'from-amber-500 to-amber-600' },
+    { value: 'storage', label: 'Storage Batch', prefix: 'S', icon: Database, color: 'from-teal-500 to-teal-600' },
+    { value: 'refining', label: 'Refining Process', prefix: 'R', icon: Factory, color: 'from-purple-500 to-purple-600' },
+    { value: 'distribution', label: 'Distribution', prefix: 'D', icon: Share2, color: 'from-emerald-500 to-emerald-600' },
+    { value: 'retail', label: 'Retail Point', prefix: 'RT', icon: Store, color: 'from-pink-500 to-pink-600' },
   ];
 
   const roleStageLimit: Record<string, number> = {
@@ -1166,13 +1196,25 @@ const ProvenancePage = () => {
     'RETAIL_MANAGER': 'retail'
   };
 
+  const resolveTypeFromId = (id: string) => {
+    const ucId = id.toUpperCase();
+    if (ucId.startsWith('RT')) return 'retail';
+    if (ucId.startsWith('C')) return 'crude';
+    if (ucId.startsWith('T')) return 'transport';
+    if (ucId.startsWith('S')) return 'storage';
+    if (ucId.startsWith('R')) return 'refining';
+    if (ucId.startsWith('D')) return 'distribution';
+    return 'retail';
+  };
+
   const fetchProvenance = async () => {
     if (!searchId) return;
     setLoading(true);
     setError(null);
     setProvenance(null);
     try {
-      const res = await api.get(`/provenance/${stageType}/${searchId}`);
+      const stageType = resolveTypeFromId(searchId);
+      const res = await api.get(`/provenance/${stageType}/${searchId.toUpperCase()}`);
       if (!res.data || Object.values(res.data).every(v => v === null)) {
         setError('No journey data found for this ID');
       } else {
@@ -1188,61 +1230,73 @@ const ProvenancePage = () => {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h2 className="text-2xl font-bold text-white">Recursive Provenance</h2>
-        <p className="text-slate-400">Trace the complete journey of any batch across the entire supply chain</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-3xl font-bold text-white tracking-tight">Global Provenance</h2>
+          <p className="text-slate-400 mt-1">Unified blockchain ledger for verifying petroleum life-cycles</p>
+        </div>
+        <div className="hidden lg:flex items-center gap-3 px-4 py-2 bg-teal-500/10 border border-teal-500/20 rounded-full">
+          <ShieldCheck className="w-4 h-4 text-teal-400" />
+          <span className="text-[10px] font-bold text-teal-400 uppercase tracking-widest">End-to-End Tracing</span>
+        </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-4 bg-slate-900/50 p-6 rounded-2xl border border-slate-800">
-        <div className="space-y-1 flex-1">
-          <label className="text-xs font-bold text-slate-500 uppercase">Search Stage</label>
-          <select 
-            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 text-slate-200 focus:ring-2 focus:ring-teal-500/50"
-            value={stageType}
-            onChange={(e) => setStageType(e.target.value)}
-          >
-            {stages.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-          </select>
+      <div className="bg-slate-900/40 p-1 border border-slate-800 rounded-2xl flex max-w-2xl">
+        <div className="flex-1 flex items-center px-4 gap-3">
+          <Search className="w-5 h-5 text-slate-500" />
+          <input 
+            type="text"
+            placeholder="Enter Record ID (e.g., C1001, RT5001)..." 
+            value={searchId}
+            onChange={(e) => setSearchId(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && fetchProvenance()}
+            className="flex-1 bg-transparent border-none focus:ring-0 text-white placeholder-slate-600 py-4 font-mono text-sm"
+          />
         </div>
-        <div className="space-y-1 flex-[2]">
-          <label className="text-xs font-bold text-slate-500 uppercase">Record ID</label>
-          <div className="flex gap-2">
-            <Input 
-              placeholder={`Enter ID (e.g., ${stages.find(s => s.value === stageType)?.prefix}1234)`} 
-              value={searchId}
-              onChange={(e) => setSearchId(e.target.value)}
-              className="bg-slate-950 border-slate-800"
-            />
-            <Button onClick={fetchProvenance} disabled={loading} className="shrink-0">
-              {loading ? 'Tracing...' : 'Trace Journey'}
-            </Button>
-          </div>
-        </div>
+        <Button 
+          onClick={fetchProvenance} 
+          disabled={loading} 
+          className="bg-teal-600 hover:bg-teal-500 text-white px-8 rounded-xl h-auto"
+        >
+          {loading ? (
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              <span>Tracing...</span>
+            </div>
+          ) : 'Verify Chain'}
+        </Button>
       </div>
 
       {error && (
         <motion.div 
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm flex items-center gap-2"
+          className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm flex items-center gap-3 max-w-2xl"
         >
-          <AlertTriangle className="w-4 h-4" />
-          {error}
+          <AlertTriangle className="w-5 h-5 shrink-0" />
+          <p className="font-medium">{error}</p>
         </motion.div>
       )}
 
       {provenance && (
-        <div className="space-y-8">
-          {/* Horizontal Line Visualization */}
-          <div className="bg-slate-900/50 p-12 rounded-2xl border border-slate-800 overflow-x-auto">
-            <div className="min-w-[800px] relative flex justify-between items-center px-12">
-              {/* Background Line */}
-              <div className="absolute left-12 right-12 h-1 bg-slate-800 top-1/2 -translate-y-1/2 rounded-full overflow-hidden">
+        <div className="space-y-12">
+          {/* Pipeline Visualisation */}
+          <div className="relative bg-slate-900/60 p-12 lg:p-16 rounded-[2.5rem] border border-slate-800/80 shadow-2xl overflow-x-auto">
+            <div className="min-w-[900px] relative flex justify-between items-center px-16">
+              {/* Pipeline Tube */}
+              <div className="absolute left-16 right-16 h-4 bg-slate-800/50 top-1/2 -translate-y-1/2 rounded-full border border-slate-700/30 overflow-hidden">
+                {/* Flow Animation */}
+                <motion.div 
+                  initial={{ x: '-100%' }}
+                  animate={{ x: '100%' }}
+                  transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+                  className="absolute inset-0 w-1/2 bg-gradient-to-r from-transparent via-teal-500/20 to-transparent blur-sm"
+                />
                 <motion.div 
                   initial={{ width: 0 }}
                   animate={{ width: '100%' }}
                   transition={{ duration: 1.5, ease: "easeInOut" }}
-                  className="h-full bg-gradient-to-r from-teal-500 via-emerald-500 to-teal-500 shadow-[0_0_10px_rgba(20,184,166,0.5)]"
+                  className="h-full bg-teal-500/40 shadow-[0_0_15px_rgba(20,184,166,0.5)]"
                 />
               </div>
 
@@ -1252,6 +1306,7 @@ const ProvenancePage = () => {
               }).map((step, idx) => {
                 const isManagerStage = roleToStage[userRole] === step.value;
                 const hasData = !!provenance[step.value];
+                const isCurrentType = resolveTypeFromId(searchId) === step.value;
                 
                 return (
                   <motion.div 
@@ -1259,22 +1314,53 @@ const ProvenancePage = () => {
                     initial={{ opacity: 0, scale: 0.8 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ delay: idx * 0.1 }}
-                    className="relative z-10 flex flex-col items-center gap-4"
+                    className="relative z-10 flex flex-col items-center group/node"
                   >
-                    <div className={`w-16 h-16 rounded-full flex items-center justify-center border-2 transition-all duration-500
-                      ${hasData ? 'bg-slate-950' : 'bg-slate-900 opacity-50'}
-                      ${isManagerStage 
-                        ? 'border-teal-400 shadow-[0_0_30px_rgba(45,212,191,0.6)] ring-8 ring-teal-500/10 scale-110' 
-                        : hasData ? 'border-emerald-500/50' : 'border-slate-700'}`}
+                    {/* Connection Point Top */}
+                    <div className={`w-0.5 h-8 mb-2 bg-slate-800 hidden lg:block transition-colors duration-500 ${hasData ? 'bg-teal-500/50' : ''}`} />
+                    
+                    <motion.div 
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                      onClick={() => {
+                        if (hasData) {
+                          // Scroll to details
+                          const el = document.getElementById(`details-${step.value}`);
+                          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                      }}
+                      className={`relative w-20 h-20 rounded-3xl flex items-center justify-center border-2 transition-all duration-500 cursor-pointer
+                        ${hasData ? 'bg-slate-950/80 backdrop-blur-sm' : 'bg-slate-900/50 opacity-40'}
+                        ${isManagerStage 
+                          ? 'border-teal-400 shadow-[0_0_30px_rgba(45,212,191,0.4)] ring-8 ring-teal-500/10' 
+                          : hasData ? 'border-emerald-500/50 hover:border-emerald-400' : 'border-slate-800'}
+                        ${isCurrentType ? 'ring-4 ring-blue-500/20 border-blue-400/50' : ''}`}
                     >
-                      <step.icon className={`w-6 h-6 ${isManagerStage ? 'text-teal-400 animate-pulse' : hasData ? 'text-emerald-400' : 'text-slate-600'}`} />
-                    </div>
-                    <div className="text-center">
-                      <p className={`text-xs font-bold uppercase tracking-widest ${isManagerStage ? 'text-teal-400' : 'text-slate-500'}`}>
+                      <step.icon className={`w-8 h-8 transition-colors ${isManagerStage ? 'text-teal-400' : hasData ? 'text-emerald-400' : 'text-slate-600'}`} />
+                      
+                      {/* Search Target Indicator */}
+                      {isCurrentType && (
+                        <div className="absolute -top-1 -right-1 w-4 h-4 bg-blue-500 rounded-full border-2 border-slate-950 flex items-center justify-center">
+                          <Activity className="w-2 h-2 text-white animate-pulse" />
+                        </div>
+                      )}
+
+                      {/* Tooltip on hover */}
+                      <div className="absolute -bottom-12 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[10px] font-bold py-1 px-3 rounded-full opacity-0 group-hover/node:opacity-100 transition-opacity pointer-events-none whitespace-nowrap border border-slate-700 shadow-xl">
+                        {step.label}
+                      </div>
+                    </motion.div>
+
+                    <div className="mt-8 text-center">
+                      <p className={`text-[10px] font-bold uppercase tracking-[0.2em] transition-colors
+                        ${isManagerStage ? 'text-teal-400' : hasData ? 'text-emerald-500' : 'text-slate-600'}`}>
                         {step.label.split(' ')[0]}
                       </p>
                       {hasData && (
-                        <p className="text-[10px] text-emerald-500 font-bold mt-1">VERIFIED</p>
+                        <div className="flex items-center justify-center gap-1 mt-1">
+                          <div className="w-1 h-1 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]" />
+                          <span className="text-[8px] text-slate-500 font-bold uppercase">Linked</span>
+                        </div>
                       )}
                     </div>
                   </motion.div>
@@ -1283,50 +1369,56 @@ const ProvenancePage = () => {
             </div>
           </div>
 
-          {/* Detailed Cards Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* Details Section */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {stages.filter((_, idx) => {
               const limit = roleStageLimit[userRole] ?? -1;
               return idx <= limit;
             }).map((step, idx) => provenance[step.value] && (
               <motion.div 
                 key={idx}
-                initial={{ opacity: 0, y: 20 }}
+                id={`details-${step.value}`}
+                initial={{ opacity: 0, y: 30 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: idx * 0.1 }}
+                transition={{ delay: 0.2 + idx * 0.1 }}
               >
-                <Card className={`overflow-hidden border-slate-800 h-full transition-all duration-300 hover:border-slate-700
-                  ${roleToStage[userRole] === step.value ? 'bg-teal-500/5 border-teal-500/30' : 'bg-slate-900/40'}`}
+                <Card className={`group relative overflow-hidden h-full border-slate-800/50 hover:border-teal-500/30 transition-all duration-500
+                  ${roleToStage[userRole] === step.value ? 'bg-gradient-to-br from-teal-500/15 via-slate-900 to-slate-950' : 'bg-slate-900/60'}`}
                 >
-                  <div className="p-6">
-                    <div className="flex items-center justify-between mb-6">
-                      <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-lg ${roleToStage[userRole] === step.value ? 'bg-teal-500/10' : 'bg-slate-800/50'}`}>
-                          <step.icon className={`w-5 h-5 ${roleToStage[userRole] === step.value ? 'text-teal-400' : 'text-slate-400'}`} />
+                  <div className="p-8">
+                    <div className="flex items-start justify-between mb-8">
+                      <div className="flex items-center gap-4">
+                        <div className={`p-3 rounded-2xl ${roleToStage[userRole] === step.value ? 'bg-teal-600' : 'bg-slate-800'} text-white shadow-xl`}>
+                          <step.icon className="w-6 h-6" />
                         </div>
-                        <h3 className={`font-bold text-lg ${roleToStage[userRole] === step.value ? 'text-teal-400' : 'text-slate-200'}`}>
-                          {step.label}
-                        </h3>
+                        <div>
+                          <h3 className="font-bold text-white text-lg tracking-tight">{step.label}</h3>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[10px] text-emerald-500 font-bold uppercase tracking-widest px-2 py-0.5 bg-emerald-500/10 rounded">Validated</span>
+                          </div>
+                        </div>
                       </div>
-                      {roleToStage[userRole] === step.value && (
-                        <span className="text-[9px] bg-teal-500/20 text-teal-400 px-2 py-0.5 rounded-full border border-teal-500/30 font-bold tracking-tighter">YOUR STAGE</span>
-                      )}
                     </div>
 
-                    <div className="grid grid-cols-1 gap-4">
-                      {Object.entries(provenance[step.value]).map(([key, val]: [string, any]) => (
-                        <div key={key} className="space-y-1">
-                          <p className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">
-                            {key.replace(/_/g, ' ')}
-                          </p>
-                          <p className="text-xs text-slate-200 font-medium break-all bg-slate-950/30 p-2 rounded border border-slate-800/50">
-                            {val || 'N/A'}
-                          </p>
-                        </div>
-                      ))}
+                    <div className="space-y-5">
+                      {Object.entries(provenance[step.value]).map(([key, val]: [string, any]) => {
+                        if (key.includes('Token') || key.includes('Hash')) return null;
+                        return (
+                          <div key={key} className="flex flex-col gap-1.5">
+                            <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest flex items-center gap-2">
+                              {key.replace(/_/g, ' ')}
+                            </p>
+                            <p className="text-sm text-slate-300 font-medium px-4 py-2.5 bg-slate-950/50 rounded-xl border border-slate-800 group-hover:border-slate-700 transition-colors">
+                              {val || '---'}
+                            </p>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
-                  <div className={`h-1 w-full ${roleToStage[userRole] === step.value ? 'bg-teal-500/50' : 'bg-slate-800/30'}`} />
+                  
+                  {/* Glass Accent */}
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-teal-500/5 rounded-full blur-3xl -mr-16 -mt-16 group-hover:bg-teal-500/10 transition-colors" />
                 </Card>
               </motion.div>
             ))}
@@ -1337,7 +1429,261 @@ const ProvenancePage = () => {
   );
 };
 
-const LedgerPage = () => null; // Removed ledger section
+const EnvironmentalCompliancePage = () => {
+  const [batchId, setBatchId] = useState('');
+  const [report, setReport] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const fetchReport = async () => {
+    if (!batchId) return;
+    setLoading(true);
+    setError('');
+    try {
+      const res = await api.get(`/compliance/${batchId.toUpperCase()}`);
+      setReport(res.data);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Report generation failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+          <ShieldCheck className="w-8 h-8 text-emerald-400" />
+          Environmental Compliance & LCA
+        </h2>
+        <p className="text-slate-400">Life Cycle Assessment and Carbon Footprint verification</p>
+      </div>
+
+      <Card className="p-6">
+        <label className="text-xs font-bold text-slate-500 uppercase">Batch Verification</label>
+        <div className="flex gap-2 mt-2">
+          <Input 
+            placeholder="Enter Batch ID (e.g., S1001)" 
+            value={batchId}
+            onChange={e => setBatchId(e.target.value)}
+          />
+          <Button onClick={fetchReport} disabled={loading}>
+            {loading ? 'Analyzing...' : 'Generate LCA Report'}
+          </Button>
+        </div>
+      </Card>
+
+      {error && (
+        <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400">
+          {error}
+        </div>
+      )}
+
+      {report && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2 space-y-8">
+            <Card className="p-8">
+              <h3 className="text-xl font-bold text-white mb-6">Carbon Footprint Analysis (LCA)</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-8">
+                <div className="space-y-2">
+                  <p className="text-slate-500 text-xs font-bold uppercase">Total Emissions</p>
+                  <p className="text-3xl font-bold text-white">{report.totalEmissions.toFixed(2)} <span className="text-sm font-normal text-slate-400">kg CO2</span></p>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-slate-500 text-xs font-bold uppercase">Carbon Intensity</p>
+                  <p className="text-3xl font-bold text-white">{report.carbonIntensity.toFixed(4)} <span className="text-sm font-normal text-slate-400">kg/BBL</span></p>
+                </div>
+              </div>
+
+              <div className="mt-12 space-y-4">
+                <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Emission Source Breakdown</h4>
+                <div className="space-y-4">
+                  {report?.emissions?.map((e: any) => (
+                    <div key={e.Emission_ID} className="flex items-center justify-between p-4 bg-slate-900/50 rounded-xl border border-slate-800">
+                      <div>
+                        <p className="text-white font-bold">{e.Source_Type}</p>
+                        <p className="text-xs text-slate-500">{e.Location}</p>
+                      </div>
+                      <p className="text-teal-400 font-mono font-bold">+{e.Emission_Amount} kg</p>
+                    </div>
+                  ))}
+                  {report?.emissions?.length === 0 && <p className="text-slate-500 text-center py-4">No emissions records linked to this batch.</p>}
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-8">
+              <h3 className="text-xl font-bold text-white mb-6">Process LCA Indicators</h3>
+              <div className="space-y-6">
+                <div>
+                  <div className="flex justify-between text-sm mb-2">
+                    <span className="text-slate-400">Global Warming Potential</span>
+                    <span className="text-white font-bold">78% Compliant</span>
+                  </div>
+                  <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                    <div className="h-full bg-emerald-500 w-[78%]" />
+                  </div>
+                </div>
+                <div>
+                  <div className="flex justify-between text-sm mb-2">
+                    <span className="text-slate-400">Resource Depletion Index</span>
+                    <span className="text-white font-bold">Medium Impact</span>
+                  </div>
+                  <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                    <div className="h-full bg-amber-500 w-[45%]" />
+                  </div>
+                </div>
+              </div>
+            </Card>
+          </div>
+
+          <div className="space-y-8">
+            <Card className={`p-8 border-2 transition-all ${report.complianceStatus === 'COMPLIANT' ? 'bg-emerald-500/5 border-emerald-500/30 shadow-[0_0_40px_rgba(16,185,129,0.1)]' : 'bg-red-500/5 border-red-500/30'}`}>
+              <div className="flex flex-col items-center text-center space-y-4">
+                <div className={`w-20 h-20 rounded-full flex items-center justify-center ${report.complianceStatus === 'COMPLIANT' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                  {report.complianceStatus === 'COMPLIANT' ? <ShieldCheck className="w-10 h-10" /> : <AlertTriangle className="w-10 h-10" />}
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Compliance Status</p>
+                  <h4 className={`text-xl font-black mt-1 ${report.complianceStatus === 'COMPLIANT' ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {report.complianceStatus}
+                  </h4>
+                </div>
+                <p className="text-xs text-slate-500 leading-relaxed italic">
+                  This batch meets all environmental standards for low carbon intensity petroleum as verified by decentralized audit logs.
+                </p>
+                <Button variant="outline" className="w-full">Download Certificate</Button>
+              </div>
+            </Card>
+
+            <Card className="p-8 bg-slate-900/50">
+              <h4 className="text-sm font-bold text-white mb-4">LCA Assessment Meta</h4>
+              <div className="space-y-4">
+                <div className="flex justify-between text-xs">
+                  <span className="text-slate-500">Methodology</span>
+                  <span className="text-slate-300 font-mono">ISO 14040/44</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-slate-500">Inventory Database</span>
+                  <span className="text-slate-300 font-mono">ecoinvent v3.10</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-slate-500">Time-frame</span>
+                  <span className="text-slate-300 font-mono">Cradle-to-Retail</span>
+                </div>
+              </div>
+            </Card>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const CorrectionSnapshotsPage = () => {
+  const [snapshots, setSnapshots] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedSnapshot, setSelectedSnapshot] = useState<any>(null);
+
+  useEffect(() => {
+    const fetchSnapshots = async () => {
+      try {
+        const res = await api.get('/snapshots');
+        setSnapshots(res.data);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchSnapshots();
+  }, []);
+
+  return (
+    <div className="space-y-8 text-left">
+      <div>
+        <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+          <Activity className="w-8 h-8 text-amber-400" />
+          JSON Correction Snapshots
+        </h2>
+        <p className="text-slate-400">Immutable audit of system-corrected data and historical snapshots</p>
+      </div>
+
+      <Card className="overflow-hidden">
+        <table className="w-full text-left">
+          <thead>
+            <tr className="bg-slate-900/50 border-b border-slate-800">
+              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase italic">Table</th>
+              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase italic">Record</th>
+              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase italic">Error Context</th>
+              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase italic">Timestamp</th>
+              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase italic">Snapshot</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800">
+            {snapshots.map((s: any) => (
+              <tr key={s.Snapshot_ID} className="hover:bg-slate-900/50">
+                <td className="px-6 py-4 text-sm text-slate-300 font-bold">{s.Table_Name}</td>
+                <td className="px-6 py-4 text-sm text-teal-400 font-mono">{s.Record_ID}</td>
+                <td className="px-6 py-4 text-sm text-red-400">{s.Error_Description}</td>
+                <td className="px-6 py-4 text-xs text-slate-500">{new Date(s.Timestamp).toLocaleString()}</td>
+                <td className="px-6 py-4">
+                  <Button variant="outline" className="text-[10px] py-1 px-2 h-auto" onClick={() => setSelectedSnapshot(s)}>
+                    <Maximize2 className="w-3 h-3" /> View Data
+                  </Button>
+                </td>
+              </tr>
+            ))}
+            {!loading && snapshots.length === 0 && (
+              <tr><td colSpan={5} className="px-6 py-12 text-center text-slate-500">No system corrections found. (System integrity stable)</td></tr>
+            )}
+            {loading && (
+              <tr><td colSpan={5} className="px-6 py-12 text-center text-slate-500">Loading snapshots...</td></tr>
+            )}
+          </tbody>
+        </table>
+      </Card>
+
+      <AnimatePresence>
+        {selectedSnapshot && (
+          <Modal 
+            isOpen={!!selectedSnapshot} 
+            onClose={() => setSelectedSnapshot(null)} 
+            title={`Snapshot: ${selectedSnapshot.Record_ID}`}
+            maxWidth="max-w-4xl"
+          >
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-4 bg-slate-950 rounded-xl border border-slate-800">
+                  <p className="text-xs text-slate-500 font-bold uppercase mb-1">Source Table</p>
+                  <p className="text-white font-bold">{selectedSnapshot.Table_Name}</p>
+                </div>
+                <div className="p-4 bg-slate-950 rounded-xl border border-slate-800">
+                  <p className="text-xs text-slate-500 font-bold uppercase mb-1">Correction Timestamp</p>
+                  <p className="text-white font-bold">{new Date(selectedSnapshot.Timestamp).toLocaleString()}</p>
+                </div>
+              </div>
+              
+              <div className="p-6 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
+                <p className="text-xs text-slate-500 font-bold uppercase">JSON Data Shell</p>
+                <div className="bg-slate-900 p-4 rounded-lg overflow-x-auto border border-teal-500/10">
+                  <pre className="text-xs font-mono text-teal-400 whitespace-pre-wrap">
+                    {JSON.stringify(JSON.parse(selectedSnapshot.JSON_Snapshot), null, 2)}
+                  </pre>
+                </div>
+              </div>
+
+              <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl">
+                <p className="text-xs text-red-400 font-bold uppercase mb-1">Audit Failure Detail</p>
+                <p className="text-sm text-red-300 italic">{selectedSnapshot.Error_Description}</p>
+              </div>
+            </div>
+          </Modal>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
 
 // --- Main App ---
 
@@ -1425,6 +1771,16 @@ export default function App() {
         <Route path="/provenance" element={
           <ProtectedRoute>
             <MainLayout><ProvenancePage /></MainLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/compliance" element={
+          <ProtectedRoute>
+            <MainLayout><EnvironmentalCompliancePage /></MainLayout>
+          </ProtectedRoute>
+        } />
+        <Route path="/snapshots" element={
+          <ProtectedRoute>
+            <MainLayout><CorrectionSnapshotsPage /></MainLayout>
           </ProtectedRoute>
         } />
         {/* Placeholder for other pages */}

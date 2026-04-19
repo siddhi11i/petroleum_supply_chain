@@ -16,3 +16,15 @@
   @apply bg-slate-900/50 backdrop-blur-md border border-slate-800/50;
 }
 
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  @apply bg-slate-800 rounded-full hover:bg-teal-600/50 transition-colors;
+}
+
