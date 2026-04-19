@@ -143,11 +143,11 @@ const createCRUDRoutes = (tableName: string, idField: string) => {
     }
   };
 
-  const logCorrectionSnapshot = async (id: string, error: string, snapshot: any) => {
+  const logCorrectionSnapshot = async (id: string, error: string, snapshot: any, user: any = null) => {
     await query(`
-      INSERT INTO Correction_Snapshots (Table_Name, Record_ID, Error_Description, JSON_Snapshot)
-      VALUES (?, ?, ?, ?)
-    `, [tableName, id, error, JSON.stringify(snapshot)]);
+      INSERT INTO Correction_Snapshots (Table_Name, Record_ID, Error_Description, JSON_Snapshot, Triggered_By_Username, Triggered_By_Role)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `, [tableName, id, error, JSON.stringify(snapshot), user?.username || 'SYSTEM', user?.role || 'SYSTEM']);
   };
 
   // GET all
@@ -184,7 +184,7 @@ const createCRUDRoutes = (tableName: string, idField: string) => {
       res.status(201).json({ message: 'Record created and ledger updated', id: data[idField] });
     } catch (err: any) {
       console.error(`Error adding to ${tableName}:`, err);
-      await logCorrectionSnapshot(data[idField] || 'NEW', err.message, data);
+      await logCorrectionSnapshot(data[idField] || 'NEW', err.message, data, (req as any).user);
       let errorMessage = err.message;
       if (err.message.includes('foreign key constraint fails')) {
         errorMessage = 'Reference ID not found in the related table. Please verify your IDs.';
@@ -216,7 +216,7 @@ const createCRUDRoutes = (tableName: string, idField: string) => {
       res.json({ message: 'Record updated and correction logged' });
     } catch (err: any) {
       console.error(`Error updating ${tableName}:`, err);
-      await logCorrectionSnapshot(id, err.message, data);
+      await logCorrectionSnapshot(id, err.message, data, (req as any).user);
       let errorMessage = err.message;
       if (err.message.includes('foreign key constraint fails')) {
         errorMessage = 'Reference ID not found in the related table. Please verify your IDs.';
@@ -492,6 +492,30 @@ app.get('/api/snapshots', authenticateToken, async (req, res) => {
   try {
     const rows = await query('SELECT * FROM Correction_Snapshots ORDER BY Timestamp DESC');
     res.json(Array.isArray(rows) ? rows : []);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Single Record Fetch for Snapshots Comparison
+app.get('/api/record/:tableName/:id', authenticateToken, async (req, res) => {
+  const { tableName, id } = req.params;
+  const idFields: Record<string, string> = {
+    'Crude_Purchase': 'Purchase_ID',
+    'Transportation_Log': 'Transit_ID',
+    'Storage_Batch': 'Batch_ID',
+    'Refining_Process': 'Refine_ID',
+    'Distribution': 'Distribution_ID',
+    'Retail': 'Retail_ID',
+    'CO2_Emissions': 'Emission_ID'
+  };
+
+  const idField = idFields[tableName];
+  if (!idField) return res.status(400).json({ error: 'Invalid table name' });
+
+  try {
+    const results: any = await query(`SELECT * FROM ${tableName} WHERE ${idField} = ?`, [id]);
+    res.json(results[0] || null);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

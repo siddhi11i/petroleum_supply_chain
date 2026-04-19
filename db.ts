@@ -156,6 +156,8 @@ export async function initializeDatabase() {
         Record_ID ${isUsingMysql ? 'VARCHAR(255)' : 'TEXT'} NOT NULL,
         Error_Description TEXT,
         JSON_Snapshot TEXT NOT NULL,
+        Triggered_By_Username ${isUsingMysql ? 'VARCHAR(255)' : 'TEXT'},
+        Triggered_By_Role ${isUsingMysql ? 'VARCHAR(255)' : 'TEXT'},
         Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
       )`,
       // Transaction_Ledger
@@ -187,7 +189,9 @@ export async function initializeDatabase() {
         { table: 'Distribution', column: 'Distance', sql: "ALTER TABLE Distribution ADD COLUMN Distance INTEGER DEFAULT 200" },
         { table: 'CO2_Emissions', column: 'Reference_ID', sql: "ALTER TABLE CO2_Emissions ADD COLUMN Reference_ID TEXT" },
         { table: 'Transaction_Ledger', column: 'Old_Data', sql: "ALTER TABLE Transaction_Ledger ADD COLUMN Old_Data TEXT" },
-        { table: 'Transaction_Ledger', column: 'Operation', sql: "ALTER TABLE Transaction_Ledger ADD COLUMN Operation TEXT NOT NULL DEFAULT 'INSERT'" }
+        { table: 'Transaction_Ledger', column: 'Operation', sql: "ALTER TABLE Transaction_Ledger ADD COLUMN Operation TEXT NOT NULL DEFAULT 'INSERT'" },
+        { table: 'Correction_Snapshots', column: 'Triggered_By_Username', sql: "ALTER TABLE Correction_Snapshots ADD COLUMN Triggered_By_Username TEXT" },
+        { table: 'Correction_Snapshots', column: 'Triggered_By_Role', sql: "ALTER TABLE Correction_Snapshots ADD COLUMN Triggered_By_Role TEXT" }
       ];
 
       for (const m of migrations) {

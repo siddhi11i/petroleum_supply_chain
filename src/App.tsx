@@ -23,6 +23,7 @@ import {
   AlertTriangle,
   History,
   Download,
+  Play,
   Leaf,
   Info,
   Maximize2,
@@ -35,7 +36,8 @@ import {
   RefreshCw,
   Star,
   Award,
-  Grid3X3
+  Grid3X3,
+  User
 } from 'lucide-react';
 import { cn } from './lib/utils';
 import { 
@@ -1881,12 +1883,24 @@ const CorrectionSnapshotsPage = () => {
   const [snapshots, setSnapshots] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedSnapshot, setSelectedSnapshot] = useState<any>(null);
+  const [currentRecord, setCurrentRecord] = useState<any>(null);
+  const [fetchingRecord, setFetchingRecord] = useState(false);
 
   useEffect(() => {
     const fetchSnapshots = async () => {
       try {
         const res = await api.get('/snapshots');
-        setSnapshots(Array.isArray(res.data) ? res.data : []);
+        let data = Array.isArray(res.data) ? res.data : [];
+        
+        // Filter: Admin sees all, Managers see only their own snapshots
+        const userRole = localStorage.getItem('role');
+        const username = localStorage.getItem('username');
+        
+        if (userRole !== 'ADMIN') {
+          data = data.filter((s: any) => s.Triggered_By_Username === username);
+        }
+        
+        setSnapshots(data);
       } catch (err) {
         console.error(err);
       } finally {
@@ -1896,85 +1910,201 @@ const CorrectionSnapshotsPage = () => {
     fetchSnapshots();
   }, []);
 
+  const handleSelectSnapshot = async (s: any) => {
+    setSelectedSnapshot(s);
+    setFetchingRecord(true);
+    setCurrentRecord(null);
+    try {
+      // Use the new generic record getter
+      const res = await api.get(`/record/${s.Table_Name}/${s.Record_ID}`);
+      setCurrentRecord(res.data);
+    } catch (err) {
+      console.error('Failed to fetch existing record:', err);
+    } finally {
+      setFetchingRecord(false);
+    }
+  };
+
   return (
-    <div className="space-y-8 text-left">
-      <div>
-        <h2 className="text-2xl font-bold text-white flex items-center gap-3">
-          <Activity className="w-8 h-8 text-amber-400" />
-          JSON Correction Snapshots
+    <div className="space-y-8 text-left max-w-6xl mx-auto">
+      <div className="flex items-center gap-3 border-b border-slate-800/50 pb-6">
+        <AlertTriangle className="w-6 h-6 text-red-500" />
+        <h2 className="text-xl font-bold text-white uppercase tracking-tight">
+          JSON Error Snapshots ({snapshots.length})
         </h2>
-        <p className="text-slate-400">Immutable audit of system-corrected data and historical snapshots</p>
       </div>
 
-      <Card className="overflow-hidden">
-        <table className="w-full text-left">
-          <thead>
-            <tr className="bg-slate-900/50 border-b border-slate-800">
-              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase italic">Table</th>
-              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase italic">Record</th>
-              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase italic">Error Context</th>
-              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase italic">Timestamp</th>
-              <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase italic">Snapshot</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-800">
-            {loading ? (
-              <tr><td colSpan={5} className="px-6 py-12 text-center text-slate-500">Loading snapshots...</td></tr>
-            ) : (Array.isArray(snapshots) ? snapshots : []).map((s: any) => (
-              <tr key={s.Snapshot_ID} className="hover:bg-slate-900/50">
-                <td className="px-6 py-4 text-sm text-slate-300 font-bold">{s.Table_Name}</td>
-                <td className="px-6 py-4 text-sm text-teal-400 font-mono">{s.Record_ID}</td>
-                <td className="px-6 py-4 text-sm text-red-400">{s.Error_Description}</td>
-                <td className="px-6 py-4 text-xs text-slate-500">{new Date(s.Timestamp).toLocaleString()}</td>
-                <td className="px-6 py-4">
-                  <Button variant="outline" className="text-[10px] py-1 px-2 h-auto" onClick={() => setSelectedSnapshot(s)}>
-                    <Maximize2 className="w-3 h-3" /> View Data
-                  </Button>
-                </td>
-              </tr>
-            ))}
-            {!loading && snapshots.length === 0 && (
-              <tr><td colSpan={5} className="px-6 py-12 text-center text-slate-500">No system corrections found. (System integrity stable)</td></tr>
-            )}
-            {loading && (
-              <tr><td colSpan={5} className="px-6 py-12 text-center text-slate-500">Loading snapshots...</td></tr>
-            )}
-          </tbody>
-        </table>
-      </Card>
+      <div className="space-y-4">
+        {loading ? (
+          <div className="py-12 text-center text-slate-500">Loading system snapshots...</div>
+        ) : snapshots.length === 0 ? (
+          <div className="py-12 text-center text-slate-500 italic">No system integrity errors found.</div>
+        ) : snapshots.map((s: any) => (
+          <motion.div
+            key={s.Snapshot_ID}
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="group relative bg-[#0B0F1A] border border-slate-800/50 rounded-lg overflow-hidden hover:bg-[#0E1424] transition-all"
+          >
+            {/* Red Accent Border */}
+            <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-red-600 shadow-[0_0_15px_rgba(220,38,38,0.3)]" />
+            
+            <div className="p-6 flex flex-col xl:flex-row xl:items-center justify-between gap-6">
+              <div className="flex-1 space-y-3">
+                <h3 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+                  {s.Table_Name} - <span className="text-slate-400 font-mono">{s.Record_ID}</span>
+                </h3>
+                
+                <div className="space-y-2">
+                  <p className="text-sm font-bold text-red-500 uppercase tracking-wide">
+                    INSERT_ERROR: <span className="text-slate-400 font-normal lowercase ml-1">{s.Error_Description}</span>
+                  </p>
+                  
+                  <button 
+                    onClick={() => handleSelectSnapshot(s)}
+                    className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors group/link"
+                  >
+                    <Play className="w-3 h-3 text-slate-500 fill-slate-500 group-hover/link:text-white group-hover/link:fill-white transition-all transform group-hover/link:translate-x-0.5" />
+                    <span className="text-sm font-medium underline underline-offset-4 decoration-slate-800 hover:decoration-white">Compare with Database State</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 max-w-sm hidden md:block border-l border-slate-800 pl-6">
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-2 text-left">Triggered By</p>
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-slate-950 rounded-lg border border-slate-800">
+                    <User className="w-4 h-4 text-slate-400" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-bold text-slate-100">{s.Triggered_By_Username || 'Unknown'}</p>
+                    <p className="text-[10px] text-teal-500/80 font-mono uppercase tracking-tighter leading-none">{s.Triggered_By_Role || 'System'}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-4 border-l border-slate-800 pl-6 shrink-0">
+                <div className="text-right">
+                  <p className="text-[10px] text-slate-200 uppercase font-black tracking-widest leading-tight">
+                    Audit Hashed
+                  </p>
+                  <p className="text-[10px] text-slate-600 font-mono">
+                    ID: {String(s.Snapshot_ID).slice(0, 8)}...
+                  </p>
+                  <p className="text-[10px] text-slate-600">
+                    {new Date(s.Timestamp).toLocaleDateString()}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        ))}
+      </div>
 
       <AnimatePresence>
         {selectedSnapshot && (
           <Modal 
             isOpen={!!selectedSnapshot} 
             onClose={() => setSelectedSnapshot(null)} 
-            title={`Snapshot: ${selectedSnapshot.Record_ID}`}
-            maxWidth="max-w-4xl"
+            title={`Integrity Audit: ${selectedSnapshot.Record_ID}`}
+            maxWidth="max-w-6xl"
           >
             <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="p-4 bg-slate-950 rounded-xl border border-slate-800">
-                  <p className="text-xs text-slate-500 font-bold uppercase mb-1">Source Table</p>
-                  <p className="text-white font-bold">{selectedSnapshot.Table_Name}</p>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase mb-1">Audit Actor</p>
+                  <div className="flex items-center gap-2">
+                    <User className="w-4 h-4 text-teal-400" />
+                    <div>
+                      <p className="text-sm text-white font-bold leading-tight">{selectedSnapshot.Triggered_By_Username || 'System'}</p>
+                      <p className="text-[10px] text-slate-500 uppercase font-mono">{selectedSnapshot.Triggered_By_Role || 'Process'}</p>
+                    </div>
+                  </div>
                 </div>
                 <div className="p-4 bg-slate-950 rounded-xl border border-slate-800">
-                  <p className="text-xs text-slate-500 font-bold uppercase mb-1">Correction Timestamp</p>
-                  <p className="text-white font-bold">{new Date(selectedSnapshot.Timestamp).toLocaleString()}</p>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase mb-1">Source Table</p>
+                  <p className="text-sm text-white font-bold">{selectedSnapshot.Table_Name}</p>
                 </div>
-              </div>
-              
-              <div className="p-6 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
-                <p className="text-xs text-slate-500 font-bold uppercase">JSON Data Shell</p>
-                <div className="bg-slate-900 p-4 rounded-lg overflow-x-auto border border-teal-500/10">
-                  <pre className="text-xs font-mono text-teal-400 whitespace-pre-wrap">
-                    {JSON.stringify(JSON.parse(selectedSnapshot.JSON_Snapshot), null, 2)}
-                  </pre>
+                <div className="p-4 bg-slate-950 rounded-xl border border-slate-800">
+                  <p className="text-[10px] text-slate-500 font-bold uppercase mb-1">Snapshot Trace</p>
+                  <p className="text-sm text-white font-bold">{new Date(selectedSnapshot.Timestamp).toLocaleString()}</p>
                 </div>
               </div>
 
-              <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl">
-                <p className="text-xs text-red-400 font-bold uppercase mb-1">Audit Failure Detail</p>
-                <p className="text-sm text-red-300 italic">{selectedSnapshot.Error_Description}</p>
+              <div className="bg-red-500/5 border border-red-500/10 p-4 rounded-xl flex items-start gap-4">
+                <div className="p-2 bg-red-500/20 rounded-lg shrink-0">
+                  <AlertTriangle className="w-5 h-5 text-red-400" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-red-400 uppercase tracking-widest mb-1">Constraint Violation</p>
+                  <p className="text-sm text-slate-300 italic">{selectedSnapshot.Error_Description}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Column 1: Database State */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Current Database Record</p>
+                    {fetchingRecord ? (
+                       <RefreshCw className="w-3 h-3 text-slate-500 animate-spin" />
+                    ) : currentRecord ? (
+                       <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                    ) : (
+                       <X className="w-3 h-3 text-red-500" />
+                    )}
+                  </div>
+                  <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 min-h-[300px] flex flex-col">
+                    {fetchingRecord ? (
+                      <div className="flex-1 flex items-center justify-center text-slate-500 italic text-sm">Querying database...</div>
+                    ) : currentRecord ? (
+                      <div className="space-y-4">
+                        {Object.entries(currentRecord).map(([key, value]: any) => (
+                          <div key={key} className="flex justify-between border-b border-slate-900 pb-2">
+                            <span className="text-[11px] text-slate-500 font-mono">{key}</span>
+                            <span className="text-[11px] text-emerald-400 font-bold font-mono">{String(value)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex-1 flex flex-col items-center justify-center text-center p-8 space-y-4">
+                        <Archive className="w-10 h-10 text-slate-800" />
+                        <div className="space-y-1">
+                          <p className="text-sm text-slate-500 font-medium">Record Not Found</p>
+                          <p className="text-[10px] text-slate-600 italic">This ID does not exist in the {selectedSnapshot.Table_Name} table.</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Column 2: Wrong Input Data */}
+                <div className="space-y-3">
+                  <p className="text-xs font-bold text-red-500 uppercase tracking-widest">Wrong Data Inputted (Snapshot)</p>
+                  <div className="bg-slate-950 p-6 rounded-2xl border border-red-500/10 min-h-[300px]">
+                    <div className="space-y-4">
+                      {(() => {
+                        try {
+                          const wrongData = JSON.parse(selectedSnapshot.JSON_Snapshot);
+                          return Object.entries(wrongData).map(([key, value]: any) => {
+                            const isDifferent = currentRecord && currentRecord[key] !== value;
+                            return (
+                              <div key={key} className={cn(
+                                "flex justify-between border-b border-slate-900 pb-2",
+                                isDifferent && "bg-red-500/5 -mx-2 px-2 border-red-500/20"
+                              )}>
+                                <span className={cn("text-[11px] font-mono", isDifferent ? "text-red-400" : "text-slate-500")}>{key}</span>
+                                <span className={cn("text-[11px] font-bold font-mono", isDifferent ? "text-red-400" : "text-slate-300")}>{String(value)}</span>
+                              </div>
+                            );
+                          });
+                        } catch (e) {
+                          return <div className="text-red-400 text-xs italic">JSON Parsing Error</div>;
+                        }
+                      })()}
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </Modal>
