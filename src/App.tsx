@@ -847,7 +847,6 @@ const Dashboard = () => {
   const [alerts, setAlerts] = useState<any>({ stockAlerts: [], storageAlerts: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'real-time' | 'historical'>('real-time');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -884,20 +883,6 @@ const Dashboard = () => {
         <div>
           <h2 className="text-2xl font-bold text-white">System Overview</h2>
           <p className="text-slate-400">Real-time status of the petroleum supply chain</p>
-        </div>
-        <div className="flex items-center gap-2 bg-slate-800/50 p-1 rounded-lg border border-slate-700">
-          <button 
-            onClick={() => setViewMode('real-time')}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium shadow-sm transition-all ${viewMode === 'real-time' ? 'bg-teal-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-          >
-            Real-time
-          </button>
-          <button 
-            onClick={() => setViewMode('historical')}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${viewMode === 'historical' ? 'bg-teal-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-          >
-            Historical
-          </button>
         </div>
       </div>
 
@@ -956,7 +941,7 @@ const Dashboard = () => {
               <div className="space-y-1">
                 <p className="text-slate-400 text-sm font-medium">{card.title}</p>
                 <h3 className="text-3xl font-bold text-white">
-                  {loading ? '...' : (viewMode === 'historical' ? Math.round(card.count * 0.8) : card.count)}
+                  {loading ? '...' : card.count}
                 </h3>
               </div>
               <div className="mt-6 pt-6 border-t border-slate-800 flex items-center justify-between">
