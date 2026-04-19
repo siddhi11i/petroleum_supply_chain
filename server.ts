@@ -111,7 +111,7 @@ const createCRUDRoutes = (tableName: string, idField: string) => {
     'Refining_Process': 'REFINING_MANAGER',
     'Distribution': 'DISTRIBUTION_MANAGER',
     'Retail': 'RETAIL_MANAGER',
-    'CO2_Emissions': 'ENVIRONMENT_MANAGER'
+    'CO2_Emissions': 'SYSTEM_ONLY' // Manual entries disabled, logic handles calculations
   };
 
   const checkRole = (req: any, res: any, next: any) => {
@@ -127,7 +127,7 @@ const createCRUDRoutes = (tableName: string, idField: string) => {
   const processAlerts = async (data: any) => {
     if (tableName === 'Storage_Batch') {
       const capacity = Number(data.Current_Capacity);
-      const threshold = Number(data.Threshold) || 25000;
+      const threshold = Number(data.Threshold) || 5000;
       if (capacity < threshold) {
         await query(`
           INSERT INTO System_Alerts (Type, Message)
@@ -324,6 +324,25 @@ app.get('/api/alerts', authenticateToken, async (req, res) => {
   }
 });
 
+app.get('/api/alerts/history', authenticateToken, async (req, res) => {
+  try {
+    const alerts = await query("SELECT * FROM System_Alerts WHERE Status != 'ACTIVE' ORDER BY Created_At DESC LIMIT 50");
+    res.json(alerts);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/alerts/:id/acknowledge', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  try {
+    await query("UPDATE System_Alerts SET Status = 'ACKNOWLEDGED' WHERE Alert_ID = ?", [id]);
+    res.json({ message: 'Alert acknowledged' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Environmental Compliance Report & LCA Tracking
 app.get('/api/compliance/:batchId', authenticateToken, async (req, res) => {
   const { batchId } = req.params;
@@ -371,12 +390,41 @@ app.get('/api/compliance/:batchId', authenticateToken, async (req, res) => {
 
     if (journeyIds.length === 0) return res.json({ error: 'No journey data' });
 
-    const placeholders = journeyIds.map(() => '?').join(',');
-    const emissions: any = await query(`SELECT * FROM CO2_Emissions WHERE Reference_ID IN (${placeholders})`, journeyIds);
+    // --- LCA CALCULATIONS USING USER FORMULAS ---
+    const v_crude = provenance.crude?.Volume || 0;
+    const v_transport = provenance.transport?.Quantity || v_crude;
+    const d_transport = provenance.transport?.Distance || 500;
+    const v_storage = provenance.storage?.Current_Capacity || v_transport;
+    const v_refining = provenance.refining?.Input_Volume || v_storage;
+    const v_distribution = provenance.distribution?.Dispatch_Volume || v_refining;
+    const d_distribution = provenance.distribution?.Distance || 200;
+    const v_retail = provenance.retail?.Receive_Volume || v_distribution;
 
-    const totalEmissions = (emissions as any[]).reduce((sum, e) => sum + e.Emission_Amount, 0);
-    const volume = provenance.crude?.Volume || 0;
-    const carbonIntensity = volume > 0 ? totalEmissions / volume : 0;
+    const e1_crude = (v_crude * 0.15) * 0.4;
+    const e2_transport = d_transport * (v_transport * 0.00085) * 0.062;
+    const e3_storage = (v_storage * 0.02 * 0.4) + (v_storage * 0.0005 * 2.3);
+    const e4_refining = (v_refining * 0.45) * 0.4;
+    const e5_distribution = d_distribution * (v_distribution * 0.00085) * 0.062;
+    const e6_retail = v_retail * 2.31;
+
+    const stageEmissions = [
+      { stage: 'Crude Purchase', value: e1_crude, color: 'blue' },
+      { stage: 'Transportation', value: e2_transport, color: 'amber' },
+      { stage: 'Storage', value: e3_storage, color: 'teal' },
+      { stage: 'Refining', value: e4_refining, color: 'purple' },
+      { stage: 'Distribution', value: e5_distribution, color: 'emerald' },
+      { stage: 'Retail Point', value: e6_retail, color: 'pink' }
+    ];
+
+    const totalEmissions = e1_crude + e2_transport + e3_storage + e4_refining + e5_distribution + e6_retail;
+    const carbonIntensity = v_crude > 0 ? totalEmissions / v_crude : 0;
+
+    const hotspot = stageEmissions.reduce((prev, current) => (prev.value > current.value) ? prev : current);
+
+    const breakdown = stageEmissions.map(s => ({
+      ...s,
+      percentage: totalEmissions > 0 ? (s.value / totalEmissions) * 100 : 0
+    }));
 
     res.json({
       batchId,
@@ -388,14 +436,17 @@ app.get('/api/compliance/:batchId', authenticateToken, async (req, res) => {
         distribution: provenance.distribution, 
         retail: provenance.retail 
       },
-      emissions,
       totalEmissions,
       carbonIntensity,
-      complianceStatus: carbonIntensity < 0.5 ? 'COMPLIANT' : 'WARNING: HIGH CARBON INTENSITY',
+      hotspot,
+      breakdown,
+      complianceStatus: carbonIntensity < 2.5 ? 'COMPLIANT' : 'WARNING: HIGH CARBON INTENSITY',
       lcaReport: {
         footprint: totalEmissions,
         unit: 'kg CO2',
-        assessmentDate: new Date().toISOString()
+        assessmentDate: new Date().toISOString(),
+        boundary: 'Cradle-to-Grave',
+        methodology: 'Simplified Process-based LCA (IPCC guidelines)'
       }
     });
   } catch (err: any) {
@@ -404,11 +455,43 @@ app.get('/api/compliance/:batchId', authenticateToken, async (req, res) => {
   }
 });
 
+// Transporter Trust Scores
+app.get('/api/transporters/scores', authenticateToken, async (req, res) => {
+  try {
+    const logs: any = await query('SELECT * FROM Transportation_Log');
+    const scores: Record<string, { total: number, verified: number, qualityTotal: number, count: number }> = {};
+    
+    logs.forEach((log: any) => {
+      const id = log.Vehicle_ID;
+      if (!scores[id]) scores[id] = { total: 0, verified: 0, qualityTotal: 0, count: 0 };
+      
+      scores[id].count++;
+      // Integrity: Quantity consistency check (simulated based on Arrival presence)
+      if (log.Arrival_Time) scores[id].verified++;
+      
+      // Quality: Based on Fuel_Quality character mapping
+      const qualityScore = log.Fuel_Quality?.toLowerCase().includes('good') || log.Fuel_Quality?.toLowerCase().includes('verified') ? 100 : 70;
+      scores[id].qualityTotal += qualityScore;
+    });
+
+    const finalScores = Object.entries(scores).map(([id, stats]) => ({
+      id,
+      integrity: Math.round((stats.verified / stats.count) * 100),
+      quality: Math.round(stats.qualityTotal / stats.count),
+      rating: Math.round(((stats.verified / stats.count) * 50) + ((stats.qualityTotal / stats.count / 100) * 50))
+    })).sort((a, b) => b.rating - a.rating);
+
+    res.json(finalScores);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // JSON Correction Snapshots
 app.get('/api/snapshots', authenticateToken, async (req, res) => {
   try {
     const rows = await query('SELECT * FROM Correction_Snapshots ORDER BY Timestamp DESC');
-    res.json(rows);
+    res.json(Array.isArray(rows) ? rows : []);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

@@ -84,6 +84,7 @@ export async function initializeDatabase() {
         Driver_ID ${isUsingMysql ? 'VARCHAR(255)' : 'TEXT'},
         Quantity INTEGER,
         Route_Type ${isUsingMysql ? 'VARCHAR(50)' : 'TEXT'} NOT NULL,
+        Distance INTEGER DEFAULT 500,
         Departure_Time ${isUsingMysql ? 'VARCHAR(255)' : 'TEXT'} NOT NULL,
         Arrival_Time ${isUsingMysql ? 'VARCHAR(255)' : 'TEXT'},
         Fuel_Quality ${isUsingMysql ? 'VARCHAR(255)' : 'TEXT'} NOT NULL,
@@ -95,7 +96,7 @@ export async function initializeDatabase() {
         Batch_ID ${isUsingMysql ? 'VARCHAR(255)' : 'TEXT'} PRIMARY KEY,
         Tank_Number INTEGER NOT NULL,
         Current_Capacity INTEGER NOT NULL,
-        Threshold INTEGER DEFAULT 25000,
+        Threshold INTEGER DEFAULT 5000,
         Last_Inspection_Date ${isUsingMysql ? 'VARCHAR(255)' : 'TEXT'},
         Transit_ID ${isUsingMysql ? 'VARCHAR(255)' : 'TEXT'},
         FOREIGN KEY (Transit_ID) REFERENCES Transportation_Log(Transit_ID)
@@ -115,6 +116,7 @@ export async function initializeDatabase() {
       `CREATE TABLE IF NOT EXISTS Distribution (
         Distribution_ID ${isUsingMysql ? 'VARCHAR(255)' : 'TEXT'} PRIMARY KEY,
         Dispatch_Volume INTEGER NOT NULL,
+        Distance INTEGER DEFAULT 200,
         Delivery_Status ${isUsingMysql ? 'VARCHAR(50)' : 'TEXT'} NOT NULL,
         Adulteration_Test_Result TEXT,
         Final_Consumer_Hash TEXT,
@@ -180,7 +182,9 @@ export async function initializeDatabase() {
     if (!isUsingMysql && sqliteDb) {
       const migrations = [
         { table: 'Users', column: 'role', sql: "ALTER TABLE Users ADD COLUMN role TEXT NOT NULL DEFAULT 'USER'" },
-        { table: 'Storage_Batch', column: 'Threshold', sql: "ALTER TABLE Storage_Batch ADD COLUMN Threshold INTEGER DEFAULT 25000" },
+        { table: 'Storage_Batch', column: 'Threshold', sql: "ALTER TABLE Storage_Batch ADD COLUMN Threshold INTEGER DEFAULT 5000" },
+        { table: 'Transportation_Log', column: 'Distance', sql: "ALTER TABLE Transportation_Log ADD COLUMN Distance INTEGER DEFAULT 500" },
+        { table: 'Distribution', column: 'Distance', sql: "ALTER TABLE Distribution ADD COLUMN Distance INTEGER DEFAULT 200" },
         { table: 'CO2_Emissions', column: 'Reference_ID', sql: "ALTER TABLE CO2_Emissions ADD COLUMN Reference_ID TEXT" },
         { table: 'Transaction_Ledger', column: 'Old_Data', sql: "ALTER TABLE Transaction_Ledger ADD COLUMN Old_Data TEXT" },
         { table: 'Transaction_Ledger', column: 'Operation', sql: "ALTER TABLE Transaction_Ledger ADD COLUMN Operation TEXT NOT NULL DEFAULT 'INSERT'" }
@@ -199,9 +203,9 @@ export async function initializeDatabase() {
         }
       }
 
-      // Automatically migrate any legacy threshold values of 500 to the new requirement of 25000
+      // Automatically migrate any legacy threshold values to the new requirement of 5000
       try {
-        sqliteDb.prepare("UPDATE Storage_Batch SET Threshold = 25000 WHERE Threshold = 500").run();
+        sqliteDb.prepare("UPDATE Storage_Batch SET Threshold = 5000").run();
       } catch (e) {
         console.error("Threshold data migration failed:", e);
       }
