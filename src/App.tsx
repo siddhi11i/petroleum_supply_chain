@@ -304,6 +304,26 @@ const DataPage = ({
   };
 
   useEffect(() => {
+    if (showModal && workflowStage === 'crude' && data.length > 0) {
+      // Logic to suggest next numeric ID
+      const numericIds = data
+        .map(item => {
+          const val = String(item[idField]);
+          const numMatch = val.match(/\d+/);
+          return numMatch ? parseInt(numMatch[0]) : 0;
+        })
+        .filter(n => !isNaN(n));
+      
+      if (numericIds.length > 0) {
+        const nextId = Math.max(...numericIds) + 1;
+        setFormData((prev: any) => ({ ...prev, [idField]: nextId.toString() }));
+      } else {
+        setFormData((prev: any) => ({ ...prev, [idField]: '1001' }));
+      }
+    }
+  }, [showModal, workflowStage, data, idField]);
+
+  useEffect(() => {
     if (showModal && workflowStage && workflowStage !== 'crude') {
       fetchAvailableIds();
     }
@@ -1160,8 +1180,15 @@ const Dashboard = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const statsRes = await api.get('/stats');
+        const [statsRes, scoresRes] = await Promise.all([
+          api.get('/stats'),
+          api.get('/trust-scores')
+        ]);
         setStats(statsRes.data);
+        
+        const username = localStorage.getItem('username');
+        const myScore = scoresRes.data.find((s: any) => s.username === username);
+        setStats((prev: any) => ({ ...prev, myScore }));
       } catch (err: any) {
         console.error(err);
         setError(err.response?.data?.error || 'Failed to fetch dashboard data');
@@ -1183,12 +1210,25 @@ const Dashboard = () => {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-white">System Overview</h2>
-          <p className="text-slate-400">Real-time status of the petroleum supply chain</p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-bold text-white">System Overview</h2>
+            <p className="text-slate-400">Real-time status of the petroleum supply chain</p>
+          </div>
+          {!loading && stats.myScore && (
+            <div className="flex items-center gap-4 bg-teal-500/10 border border-teal-500/20 px-6 py-3 rounded-2xl">
+              <div>
+                <p className="text-[10px] text-teal-400 uppercase font-black tracking-widest leading-none mb-1">Your Integrity Score</p>
+                <p className="text-2xl font-bold text-white leading-none">{stats.myScore.score}%</p>
+              </div>
+              <div className="h-10 w-[2px] bg-teal-500/20" />
+              <div className="flex flex-col">
+                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Rank</span>
+                <span className="text-xs text-white font-bold">{stats.myScore.total === 0 ? 'Verified Agent' : stats.myScore.score >= 90 ? 'High Integrity' : 'Standard'}</span>
+              </div>
+            </div>
+          )}
         </div>
-      </div>
 
       {error && (
         <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm flex items-center gap-2">
@@ -2316,6 +2356,24 @@ const TrustScoresPage = () => {
   const [scores, setScores] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedRole, setSelectedRole] = useState('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedStakeholder, setSelectedStakeholder] = useState<any>(null);
+  const [stakeholderIncidents, setStakeholderIncidents] = useState<any[]>([]);
+  const [loadingIncidents, setLoadingIncidents] = useState(false);
+  const currentUsername = localStorage.getItem('username');
+
+  const fetchIncidents = async (username: string) => {
+    setLoadingIncidents(true);
+    try {
+      const res = await api.get('/snapshots');
+      const filtered = res.data.filter((s: any) => s.Triggered_By_Username === username);
+      setStakeholderIncidents(filtered);
+    } catch (err) {
+      console.error('Failed to fetch incidents', err);
+    } finally {
+      setLoadingIncidents(false);
+    }
+  };
 
   useEffect(() => {
     const fetchScores = async () => {
@@ -2341,11 +2399,16 @@ const TrustScoresPage = () => {
     { value: 'RETAIL_MANAGER', label: 'Retail Managers' },
     { value: 'ENVIRONMENT_MANAGER', label: 'Environment Managers' },
     { value: 'ADMIN', label: 'Administrators' },
+    { value: 'USER', label: 'Registered Users' },
   ];
 
-  const filteredScores = selectedRole === 'ALL' 
-    ? scores 
-    : scores.filter(s => s.role === selectedRole);
+  const filteredScores = scores.filter(s => {
+    const roleValue = (s.role || 'USER').toUpperCase();
+    const selectedRoleUpper = selectedRole.toUpperCase();
+    const matchesRole = selectedRoleUpper === 'ALL' || roleValue === selectedRoleUpper;
+    const matchesSearch = s.username.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesRole && matchesSearch;
+  });
 
   return (
     <div className="space-y-8 text-left max-w-6xl mx-auto">
@@ -2358,21 +2421,56 @@ const TrustScoresPage = () => {
           </div>
         </div>
 
-        <div className="relative">
-          <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
-            <Filter className="w-4 h-4 text-slate-500" />
+        <div className="flex flex-col sm:flex-row md:items-center gap-4">
+          <div className="relative w-full sm:w-64">
+            <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+              <Search className="w-4 h-4 text-slate-500" />
+            </div>
+            <input 
+              type="text"
+              placeholder="Search stakeholder..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="bg-slate-900 border border-slate-800 text-slate-300 text-sm rounded-xl focus:ring-teal-500 focus:border-teal-500 block w-full pl-10 pr-4 py-2.5 outline-none transition-all hover:bg-slate-800"
+            />
           </div>
-          <select 
-            value={selectedRole}
-            onChange={(e) => setSelectedRole(e.target.value)}
-            className="bg-slate-900 border border-slate-800 text-slate-300 text-sm rounded-xl focus:ring-teal-500 focus:border-teal-500 block w-full pl-10 pr-4 py-2.5 outline-none transition-all hover:bg-slate-800"
-          >
-            {roles.map(r => (
-              <option key={r.value} value={r.value}>{r.label}</option>
-            ))}
-          </select>
+          <div className="relative">
+            <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+              <Filter className="w-4 h-4 text-slate-500" />
+            </div>
+            <select 
+              value={selectedRole}
+              onChange={(e) => setSelectedRole(e.target.value)}
+              className="bg-slate-900 border border-slate-800 text-slate-300 text-sm rounded-xl focus:ring-teal-500 focus:border-teal-500 block w-full pl-10 pr-4 py-2.5 outline-none transition-all hover:bg-slate-800"
+            >
+              {roles.map(r => (
+                <option key={r.value} value={r.value}>{r.label}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
+
+      {!loading && scores.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[
+            { label: 'Avg Network Trust', value: `${Math.round(scores.reduce((a, b) => a + b.score, 0) / scores.length)}%`, icon: Award, color: 'text-teal-400' },
+            { label: 'Total Stakeholders', value: scores.length, icon: Users, color: 'text-blue-400' },
+            { label: 'High Integrity', value: scores.filter(s => s.score >= 90).length, icon: ShieldCheck, color: 'text-emerald-400' },
+            { label: 'Network Incidents', value: scores.reduce((a, b) => a + b.failed, 0), icon: Activity, color: 'text-red-400' },
+          ].map((stat, i) => (
+            <div key={i} className="bg-slate-900/40 border border-slate-800 p-4 rounded-2xl flex items-center gap-4">
+              <div className={cn("p-3 rounded-xl bg-slate-950 border border-slate-800", stat.color)}>
+                <stat.icon className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{stat.label}</p>
+                <p className="text-xl font-bold text-white">{stat.value}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {loading ? (
@@ -2385,7 +2483,15 @@ const TrustScoresPage = () => {
             <p className="text-slate-500 italic">No stakeholders found for this category.</p>
           </div>
         ) : filteredScores.map((s: any) => (
-          <Card key={s.username} className="p-6 border-slate-800 bg-[#0B0F1A] relative overflow-hidden group">
+          <Card key={s.username} className={cn(
+            "p-6 border-slate-800 bg-[#0B0F1A] relative overflow-hidden group transition-all duration-300",
+            s.username === currentUsername && "ring-2 ring-teal-500/50 border-teal-500/30 shadow-[0_0_20px_rgba(20,184,166,0.1)]"
+          )}>
+            {s.username === currentUsername && (
+              <div className="absolute top-0 right-0 py-1 px-3 bg-teal-500 text-white text-[9px] font-black uppercase tracking-widest rounded-bl-xl z-10">
+                You
+              </div>
+            )}
             {/* Background Glow */}
             <div className={cn(
               "absolute -right-10 -top-10 w-32 h-32 rounded-full blur-[60px] transition-all duration-500 opacity-20",
@@ -2400,7 +2506,7 @@ const TrustScoresPage = () => {
                   </div>
                   <div>
                     <h3 className="font-bold text-white leading-tight">{s.username}</h3>
-                    <p className="text-[10px] text-slate-500 uppercase tracking-widest font-mono">{s.role.replace('_', ' ')}</p>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-widest font-mono">{(s.role || 'USER').replace('_', ' ')}</p>
                   </div>
                 </div>
                 <div className={cn(
@@ -2429,20 +2535,111 @@ const TrustScoresPage = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 pt-2">
+            <div className="grid grid-cols-2 gap-3 pt-2">
                 <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800/50 group-hover:border-slate-700 transition-colors">
                   <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1">Valid Blocks</p>
                   <p className="text-base font-bold text-emerald-400 font-mono">{s.success}</p>
                 </div>
-                <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800/50 group-hover:border-slate-700 transition-colors">
+                <button 
+                  onClick={() => {
+                    setSelectedStakeholder(s);
+                    fetchIncidents(s.username);
+                  }}
+                  disabled={s.failed === 0}
+                  className={cn(
+                    "p-3 rounded-xl border transition-all text-left relative",
+                    s.failed > 0 
+                      ? "bg-red-500/5 border-red-500/20 hover:border-red-500/40 cursor-pointer" 
+                      : "bg-slate-900/50 border-slate-800/50 opacity-50 cursor-default"
+                  )}
+                >
                   <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1">Poisoned Data</p>
-                  <p className="text-base font-bold text-red-400 font-mono">{s.failed}</p>
-                </div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-base font-bold text-red-400 font-mono">{s.failed}</p>
+                    {s.failed > 0 && <Info className="w-3 h-3 text-red-500/50" />}
+                  </div>
+                </button>
               </div>
             </div>
           </Card>
         ))}
       </div>
+
+      <Modal 
+        isOpen={!!selectedStakeholder} 
+        onClose={() => setSelectedStakeholder(null)} 
+        title="Stakeholder Integrity Audit"
+        maxWidth="max-w-2xl"
+      >
+        {selectedStakeholder && (
+          <div className="space-y-6">
+            <div className="flex items-center gap-4 p-4 bg-slate-800/30 rounded-2xl border border-slate-800">
+              <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-300 font-bold text-lg">
+                {selectedStakeholder.username[0].toUpperCase()}
+              </div>
+              <div className="flex-1">
+                <h4 className="text-white font-bold">{selectedStakeholder.username}</h4>
+                <p className="text-xs text-slate-400 uppercase tracking-widest">Incident History Report</p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-slate-500 uppercase font-bold">Trust Score</p>
+                <p className="text-xl font-black text-teal-400">{selectedStakeholder.score}%</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <h5 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] px-2">Data Integrity Incidents ({stakeholderIncidents.length})</h5>
+              
+              {loadingIncidents ? (
+                <div className="py-12 text-center text-slate-500 italic text-sm">Retrieving audit snapshots...</div>
+              ) : stakeholderIncidents.length === 0 ? (
+                <div className="py-12 text-center bg-slate-900/30 rounded-2xl border border-dashed border-slate-800">
+                  <p className="text-slate-500 text-sm">No incidents on record for this stakeholder.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {stakeholderIncidents.map((incident: any) => (
+                    <div key={incident.Snapshot_ID} className="bg-slate-950 border border-red-500/10 rounded-xl p-4 transition-all hover:border-red-500/30 group">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] bg-red-500/10 text-red-400 px-1.5 py-0.5 rounded font-bold uppercase">Critical Fail</span>
+                          <span className="text-xs text-slate-300 font-bold">{incident.Table_Name.replace('_', ' ')}</span>
+                          <span className="text-[10px] text-slate-600 font-mono">ID: {incident.Record_ID}</span>
+                        </div>
+                        <span className="text-[10px] text-slate-600 font-mono">
+                          {new Date(incident.Timestamp).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <p className="text-xs text-red-400 font-medium mb-3 pl-3 border-l-2 border-red-500/20 italic">
+                        "{incident.Error_Description}"
+                      </p>
+                      <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-800 overflow-hidden">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Activity className="w-3 h-3 text-slate-600" />
+                          <span className="text-[9px] text-slate-600 uppercase font-black tracking-widest">Rejected Payload Snapshot</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                          {(() => {
+                            try {
+                              const data = JSON.parse(incident.JSON_Snapshot);
+                              return Object.entries(data).slice(0, 4).map(([key, value]: any) => (
+                                <div key={key} className="flex justify-between items-center bg-black/20 px-2 py-1 rounded">
+                                  <span className="text-[9px] text-slate-500 font-mono">{key}</span>
+                                  <span className="text-[9px] text-slate-400 font-bold truncate max-w-[60px]">{String(value)}</span>
+                                </div>
+                              ));
+                            } catch (e) { return null; }
+                          })()}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };

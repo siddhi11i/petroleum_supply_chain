@@ -267,8 +267,8 @@ const createCRUDRoutes = (tableName: string, idField: string) => {
       let errorMessage = err.message;
       if (err.message.includes('foreign key constraint fails')) {
         errorMessage = 'Reference ID not found in the related table. Please verify your IDs.';
-      } else if (err.message.includes('Duplicate entry')) {
-        errorMessage = 'A record with this ID already exists.';
+      } else if (err.message.includes('Duplicate entry') || err.message.includes('UNIQUE constraint failed')) {
+        errorMessage = 'A record with this ID already exists. Please use a unique identification number.';
       }
       res.status(400).json({ error: errorMessage });
     }
