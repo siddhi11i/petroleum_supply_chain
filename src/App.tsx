@@ -1413,7 +1413,7 @@ const DistributionPage = () => (
       { name: 'Distribution_ID', label: 'Dist. ID', type: 'text' },
       { name: 'Dispatch_Volume', label: 'Dispatch Vol', type: 'number' },
       { name: 'Delivery_Status', label: 'Status', type: 'select', options: ['P(Pending)', 'D(Departed)', 'T(Transit)', 'C(Completed)'] },
-      { name: 'Adulteration_Test_Result', label: 'Test Result', type: 'text' },
+      { name: 'Adulteration_Test_Result', label: 'Test Result', type: 'select', options: ['PASS (Clear)', 'FAIL (Contaminated)', 'TRACE (Potential Adulteration)', 'PENDING (Lab Testing)'] },
       { name: 'Final_Consumer_Hash', label: 'Consumer Hash', type: 'text' },
       { name: 'Refine_ID', label: 'Refine ID', type: 'text' },
     ]}
@@ -1433,7 +1433,7 @@ const RetailPage = () => (
     prevIdField="Distribution_ID"
     fields={[
       { name: 'Retail_ID', label: 'Retail ID', type: 'text' },
-      { name: 'Station_ID', label: 'Station ID', type: 'text' },
+      { name: 'Station_ID', label: 'Station ID', type: 'text', prefix: 'ST' },
       { name: 'Receive_Volume', label: 'Receive Vol', type: 'number' },
       { name: 'Storage_Tank_Condition', label: 'Tank Cond.', type: 'select', options: ['1(Poor)', '2(Fair)', '3(Good)', '4(Very Good)', '5(Excellent)'] },
       { name: 'Distribution_ID', label: 'Dist. ID', type: 'text' },
