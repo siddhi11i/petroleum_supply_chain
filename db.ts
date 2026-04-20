@@ -66,8 +66,11 @@ export async function initializeDatabase() {
       `CREATE TABLE IF NOT EXISTS Users (
         id ${isUsingMysql ? 'INT PRIMARY KEY AUTO_INCREMENT' : 'INTEGER PRIMARY KEY AUTOINCREMENT'},
         username ${isUsingMysql ? 'VARCHAR(255)' : 'TEXT'} NOT NULL UNIQUE,
+        email ${isUsingMysql ? 'VARCHAR(255)' : 'TEXT'} NOT NULL UNIQUE,
         password_hash ${isUsingMysql ? 'VARCHAR(255)' : 'TEXT'} NOT NULL,
-        role ${isUsingMysql ? 'VARCHAR(50)' : 'TEXT'} NOT NULL DEFAULT 'USER'
+        role ${isUsingMysql ? 'VARCHAR(50)' : 'TEXT'} NOT NULL DEFAULT 'USER',
+        otp ${isUsingMysql ? 'VARCHAR(10)' : 'TEXT'},
+        otp_expiry ${isUsingMysql ? 'DATETIME' : 'TEXT'}
       )`,
       // Crude_Purchase
       `CREATE TABLE IF NOT EXISTS Crude_Purchase (
@@ -184,6 +187,9 @@ export async function initializeDatabase() {
     if (!isUsingMysql && sqliteDb) {
       const migrations = [
         { table: 'Users', column: 'role', sql: "ALTER TABLE Users ADD COLUMN role TEXT NOT NULL DEFAULT 'USER'" },
+        { table: 'Users', column: 'email', sql: "ALTER TABLE Users ADD COLUMN email TEXT" },
+        { table: 'Users', column: 'otp', sql: "ALTER TABLE Users ADD COLUMN otp TEXT" },
+        { table: 'Users', column: 'otp_expiry', sql: "ALTER TABLE Users ADD COLUMN otp_expiry TEXT" },
         { table: 'Storage_Batch', column: 'Threshold', sql: "ALTER TABLE Storage_Batch ADD COLUMN Threshold INTEGER DEFAULT 5000" },
         { table: 'Transportation_Log', column: 'Distance', sql: "ALTER TABLE Transportation_Log ADD COLUMN Distance INTEGER DEFAULT 500" },
         { table: 'Distribution', column: 'Distance', sql: "ALTER TABLE Distribution ADD COLUMN Distance INTEGER DEFAULT 200" },

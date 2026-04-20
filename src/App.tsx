@@ -37,8 +37,12 @@ import {
   Star,
   Award,
   Grid3X3,
-  User
+  User,
+  Users,
+  Ship,
+  Train
 } from 'lucide-react';
+
 import { cn } from './lib/utils';
 import { 
   BrowserRouter as Router, 
@@ -230,7 +234,7 @@ const DataPage = ({
   description: string; 
   endpoint: string; 
   idField: string; 
-  fields: { name: string; label: string; type: string; options?: string[]; readOnly?: boolean }[];
+  fields: { name: string; label: string; type: string; options?: string[]; readOnly?: boolean; prefix?: string }[];
   icon: any;
   workflowStage?: 'crude' | 'transport' | 'storage' | 'refining' | 'distribution' | 'retail';
   prefix?: string;
@@ -343,6 +347,13 @@ const DataPage = ({
         submissionData[idField] = `${prefix}${formData[idField]}`;
       }
 
+      // Handle Field-level Prefixing
+      fields.forEach(f => {
+        if (f.prefix && formData[f.name]) {
+          submissionData[f.name] = `${f.prefix}${formData[f.name]}`;
+        }
+      });
+
       // Filter out readOnly fields that shouldn't be inputted
       fields.forEach(f => {
         if (f.readOnly) {
@@ -351,6 +362,14 @@ const DataPage = ({
           submissionData[f.name] = Number(submissionData[f.name]);
         }
       });
+
+      // Negative value validation
+      const numericFields = fields.filter(f => f.type === 'number');
+      for (const f of numericFields) {
+        if (submissionData[f.name] !== undefined && Number(submissionData[f.name]) < 0) {
+          throw new Error(`${f.label} cannot be negative.`);
+        }
+      }
 
       await api.post(endpoint, submissionData);
       setShowConfirm(false);
@@ -502,6 +521,20 @@ const DataPage = ({
                   >
                     {f.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                   </select>
+                ) : f.prefix ? (
+                  <div className="flex gap-2">
+                    <div className="bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-teal-400 font-bold min-w-[3rem] flex items-center justify-center">
+                      {f.prefix}
+                    </div>
+                    <Input 
+                      type={f.type}
+                      placeholder={f.label}
+                      value={formData[f.name]}
+                      onChange={e => setFormData({...formData, [f.name]: e.target.value})}
+                      required
+                      className="flex-1"
+                    />
+                  </div>
                 ) : (
                   <Input 
                     type={f.type}
@@ -819,9 +852,17 @@ const LoginPage = () => {
   const [step, setStep] = useState(1); // 1: Role Selection, 2: Login/Register
   const [isLogin, setIsLogin] = useState(true);
   const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState('CRUDE_MANAGER');
   const [error, setError] = useState('');
+  const [showForgotModal, setShowForgotModal] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotOtp, setForgotOtp] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [forgotStep, setForgotStep] = useState(1); // 1: Email, 2: OTP & Reset
+  const [forgotMsg, setForgotMsg] = useState('');
+  const [devOtp, setDevOtp] = useState('');
   const navigate = useNavigate();
 
   const roles = [
@@ -835,12 +876,49 @@ const LoginPage = () => {
     { value: 'ADMIN', label: 'Administrator', icon: ShieldCheck, desc: 'Full system access and user management' },
   ];
 
+  const handleSendOtp = async () => {
+    setError('');
+    setForgotMsg('');
+    try {
+      const res = await api.post('/forgot-password/send-otp', { email: forgotEmail });
+      setForgotMsg(res.data.message);
+      if (res.data.dev_otp) {
+        setDevOtp(res.data.dev_otp);
+      } else {
+        setDevOtp('');
+      }
+      setForgotStep(2);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to send OTP');
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    setError('');
+    try {
+      await api.post('/forgot-password/verify-otp', { 
+        email: forgotEmail, 
+        otp: forgotOtp, 
+        new_password: newPassword 
+      });
+      alert('Password reset successful! Please login.');
+      setShowForgotModal(false);
+      setIsLogin(true);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to reset password');
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     try {
       const endpoint = isLogin ? '/login' : '/register';
-      const res = await api.post(endpoint, { username, password, role });
+      const payload = isLogin 
+        ? { username, password } 
+        : { username, email, password, role };
+      
+      const res = await api.post(endpoint, payload);
       if (isLogin) {
         localStorage.setItem('token', res.data.token);
         localStorage.setItem('username', res.data.username);
@@ -958,6 +1036,31 @@ const LoginPage = () => {
                     />
                   </div>
 
+                  {!isLogin && (
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-slate-300">Official Email</label>
+                      <Input 
+                        type="email" 
+                        placeholder="manager@petro.com" 
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        required
+                      />
+                    </div>
+                  )}
+
+                  {isLogin && (
+                    <div className="text-right">
+                      <button 
+                        type="button"
+                        onClick={() => { setShowForgotModal(true); setForgotStep(1); setForgotEmail(''); setError(''); setForgotMsg(''); }}
+                        className="text-xs text-slate-500 hover:text-teal-400 font-medium"
+                      >
+                        Forgot Password?
+                      </button>
+                    </div>
+                  )}
+
                   {error && (
                     <motion.p 
                       initial={{ opacity: 0 }} 
@@ -986,6 +1089,64 @@ const LoginPage = () => {
           )}
         </AnimatePresence>
       </motion.div>
+
+      {/* Forgot Password Modal */}
+      <Modal 
+        isOpen={showForgotModal} 
+        onClose={() => setShowForgotModal(false)}
+        title="Reset Password"
+        maxWidth="max-w-md"
+      >
+        <div className="space-y-6">
+          {forgotStep === 1 ? (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-300">Official Email</label>
+                <Input 
+                  type="email" 
+                  placeholder="Enter your registered email" 
+                  value={forgotEmail}
+                  onChange={(e) => setForgotEmail(e.target.value)}
+                />
+              </div>
+              {error && <p className="text-red-400 text-xs">{error}</p>}
+              <Button className="w-full" onClick={handleSendOtp}>Send OTP</Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-xl">
+                <p className="text-xs text-emerald-400 font-bold uppercase tracking-widest">{forgotMsg}</p>
+                {devOtp && (
+                  <div className="mt-2 p-2 bg-emerald-500/10 rounded border border-emerald-500/20 text-center">
+                    <p className="text-xs text-emerald-500 font-medium">Development Mode OTP:</p>
+                    <p className="text-lg font-bold text-white tracking-[0.5em]">{devOtp}</p>
+                  </div>
+                )}
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-300">Enter OTP</label>
+                <Input 
+                  type="text" 
+                  placeholder="6-digit code" 
+                  value={forgotOtp}
+                  onChange={(e) => setForgotOtp(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-300">New Password</label>
+                <Input 
+                  type="password" 
+                  placeholder="••••••••" 
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                />
+              </div>
+              {error && <p className="text-red-400 text-xs">{error}</p>}
+              <Button className="w-full" onClick={handleVerifyOtp}>Reset Password</Button>
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 };
@@ -1131,30 +1292,67 @@ const CrudePurchasePage = () => (
   />
 );
 
-const TransportationPage = () => (
-  <DataPage 
-    title="Transportation Log"
-    description="Track vehicle movements and route types"
-    endpoint="/transportation_log"
-    idField="Transit_ID"
-    icon={Truck}
-    workflowStage="transport"
-    prefix="T"
-    prevPrefix="C"
-    prevIdField="Purchase_ID"
-    fields={[
-      { name: 'Transit_ID', label: 'Transit ID', type: 'text' },
-      { name: 'Vehicle_ID', label: 'Vehicle ID', type: 'text' },
-      { name: 'Driver_ID', label: 'Driver ID', type: 'text' },
-      { name: 'Quantity', label: 'Quantity', type: 'number' },
-      { name: 'Route_Type', label: 'Route Type', type: 'select', options: ['Ship', 'Rail', 'Road'] },
-      { name: 'Departure_Time', label: 'Departure', type: 'datetime-local' },
-      { name: 'Arrival_Time', label: 'Arrival', type: 'datetime-local' },
-      { name: 'Fuel_Quality', label: 'Quality', type: 'text' },
-      { name: 'Purchase_ID', label: 'Purchase ID', type: 'text' },
-    ]}
-  />
-);
+const TransportationPage = () => {
+  const renderStats = (data: any[]) => {
+    const roadCount = data.filter(item => item.Route_Type === 'Road').length;
+    const railCount = data.filter(item => item.Route_Type === 'Rail').length;
+    const shipCount = data.filter(item => item.Route_Type === 'Ship').length;
+
+    const stats = [
+      { label: 'Road Logistics', count: roadCount, icon: Truck, color: 'text-amber-400', bg: 'bg-amber-400/10' },
+      { label: 'Rail Freight', count: railCount, icon: Train, color: 'text-blue-400', bg: 'bg-blue-400/10' },
+      { label: 'Ocean Vessel', count: shipCount, icon: Ship, color: 'text-teal-400', bg: 'bg-teal-400/10' },
+    ];
+
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        {stats.map((stat, i) => (
+          <motion.div
+            key={stat.label}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.1 }}
+            className="p-4 bg-slate-900/50 border border-slate-800 rounded-2xl flex items-center gap-4"
+          >
+            <div className={`w-12 h-12 ${stat.bg} rounded-xl flex items-center justify-center ${stat.color}`}>
+              <stat.icon className="w-6 h-6" />
+            </div>
+            <div>
+              <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest">{stat.label}</p>
+              <h3 className="text-2xl font-bold text-white">{stat.count} <span className="text-xs text-slate-500 font-normal ml-1">Batches</span></h3>
+            </div>
+          </motion.div>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <DataPage 
+      title="Transportation Log"
+      description="Track vehicle movements and route types Across the Global Supply Chain"
+      endpoint="/transportation_log"
+      idField="Transit_ID"
+      icon={Truck}
+      workflowStage="transport"
+      prefix="T"
+      prevPrefix="C"
+      prevIdField="Purchase_ID"
+      renderExtra={renderStats}
+      fields={[
+        { name: 'Transit_ID', label: 'Transit ID', type: 'text' },
+        { name: 'Vehicle_ID', label: 'Vehicle ID', type: 'text', prefix: 'V' },
+        { name: 'Driver_ID', label: 'Driver ID', type: 'text', prefix: 'D' },
+        { name: 'Quantity', label: 'Quantity', type: 'number' },
+        { name: 'Route_Type', label: 'Route Type', type: 'select', options: ['Ship', 'Rail', 'Road'] },
+        { name: 'Departure_Time', label: 'Departure', type: 'datetime-local' },
+        { name: 'Arrival_Time', label: 'Arrival', type: 'datetime-local' },
+        { name: 'Fuel_Quality', label: 'Fuel Quality', type: 'select', options: ['Premium-100', 'Standard-95', 'Regular-91', 'Diesel-D1', 'Eco-Fuel'] },
+        { name: 'Purchase_ID', label: 'Purchase ID', type: 'text' },
+      ]}
+    />
+  );
+};
 
 const StoragePage = () => (
   <DataPage 
@@ -2114,6 +2312,141 @@ const CorrectionSnapshotsPage = () => {
   );
 };
 
+const TrustScoresPage = () => {
+  const [scores, setScores] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedRole, setSelectedRole] = useState('ALL');
+
+  useEffect(() => {
+    const fetchScores = async () => {
+      try {
+        const res = await api.get('/trust-scores');
+        setScores(res.data);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchScores();
+  }, []);
+
+  const roles = [
+    { value: 'ALL', label: 'All Stakeholders' },
+    { value: 'CRUDE_MANAGER', label: 'Crude Managers' },
+    { value: 'TRANSPORT_MANAGER', label: 'Transport Managers' },
+    { value: 'STORAGE_MANAGER', label: 'Storage Managers' },
+    { value: 'REFINING_MANAGER', label: 'Refining Managers' },
+    { value: 'DISTRIBUTION_MANAGER', label: 'Distribution Managers' },
+    { value: 'RETAIL_MANAGER', label: 'Retail Managers' },
+    { value: 'ENVIRONMENT_MANAGER', label: 'Environment Managers' },
+    { value: 'ADMIN', label: 'Administrators' },
+  ];
+
+  const filteredScores = selectedRole === 'ALL' 
+    ? scores 
+    : scores.filter(s => s.role === selectedRole);
+
+  return (
+    <div className="space-y-8 text-left max-w-6xl mx-auto">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-slate-800/50 pb-6">
+        <div className="flex items-center gap-3">
+          <Award className="w-8 h-8 text-teal-400" />
+          <div>
+            <h2 className="text-2xl font-bold text-white uppercase tracking-tight">Trust Score Index</h2>
+            <p className="text-slate-400 text-sm">Integrity metrics based on historical transaction reliability.</p>
+          </div>
+        </div>
+
+        <div className="relative">
+          <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+            <Filter className="w-4 h-4 text-slate-500" />
+          </div>
+          <select 
+            value={selectedRole}
+            onChange={(e) => setSelectedRole(e.target.value)}
+            className="bg-slate-900 border border-slate-800 text-slate-300 text-sm rounded-xl focus:ring-teal-500 focus:border-teal-500 block w-full pl-10 pr-4 py-2.5 outline-none transition-all hover:bg-slate-800"
+          >
+            {roles.map(r => (
+              <option key={r.value} value={r.value}>{r.label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {loading ? (
+          <div className="col-span-full py-12 text-center text-slate-500 italic">Calculating system intelligence...</div>
+        ) : filteredScores.length === 0 ? (
+          <div className="col-span-full py-24 text-center">
+            <div className="bg-slate-900/50 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-slate-800">
+              <Users className="w-8 h-8 text-slate-700" />
+            </div>
+            <p className="text-slate-500 italic">No stakeholders found for this category.</p>
+          </div>
+        ) : filteredScores.map((s: any) => (
+          <Card key={s.username} className="p-6 border-slate-800 bg-[#0B0F1A] relative overflow-hidden group">
+            {/* Background Glow */}
+            <div className={cn(
+              "absolute -right-10 -top-10 w-32 h-32 rounded-full blur-[60px] transition-all duration-500 opacity-20",
+              s.score >= 90 ? "bg-emerald-500" : s.score >= 70 ? "bg-yellow-500" : "bg-red-500"
+            )} />
+            
+            <div className="relative space-y-4">
+              <div className="flex justify-between items-start">
+                <div className="flex gap-3 items-center">
+                  <div className="w-10 h-10 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-300 font-bold shadow-2xl">
+                    {s.username[0].toUpperCase()}
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-white leading-tight">{s.username}</h3>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-widest font-mono">{s.role.replace('_', ' ')}</p>
+                  </div>
+                </div>
+                <div className={cn(
+                  "px-2 py-1 rounded text-[10px] font-black uppercase tracking-widest leading-none",
+                  s.score >= 90 ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20" : s.score >= 70 ? "bg-yellow-500/10 text-yellow-500 border border-yellow-500/20" : "bg-red-500/10 text-red-500 border border-red-500/20"
+                )}>
+                  {s.score >= 90 ? 'High Trust' : s.score >= 70 ? 'Warning' : 'Critical'}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex justify-between items-end mb-1">
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Reputation Score</span>
+                  <span className="text-xl font-bold text-white">{s.score}%</span>
+                </div>
+                <div className="h-2 bg-slate-900 rounded-full overflow-hidden border border-slate-800/50 p-0.5">
+                  <motion.div 
+                    initial={{ width: 0 }}
+                    animate={{ width: `${s.score}%` }}
+                    transition={{ duration: 1.5, ease: "easeOut" }}
+                    className={cn(
+                      "h-full rounded-full transition-all",
+                      s.score >= 90 ? "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]" : s.score >= 70 ? "bg-yellow-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]" : "bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]"
+                    )}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800/50 group-hover:border-slate-700 transition-colors">
+                  <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1">Valid Blocks</p>
+                  <p className="text-base font-bold text-emerald-400 font-mono">{s.success}</p>
+                </div>
+                <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800/50 group-hover:border-slate-700 transition-colors">
+                  <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1">Poisoned Data</p>
+                  <p className="text-base font-bold text-red-400 font-mono">{s.failed}</p>
+                </div>
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const AlertHistoryPage = () => {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -2431,7 +2764,7 @@ export default function App() {
         } />
         <Route path="/scores" element={
           <ProtectedRoute>
-            <MainLayout><TrustScorePage /></MainLayout>
+            <MainLayout><TrustScoresPage /></MainLayout>
           </ProtectedRoute>
         } />
         {/* Placeholder for other pages */}

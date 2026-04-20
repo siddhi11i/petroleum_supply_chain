@@ -5,12 +5,22 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import path from 'path';
+import nodemailer from 'nodemailer';
 import { createServer as createViteServer } from 'vite';
 import { query, initializeDatabase } from './db.js';
 
 const app = express();
 const PORT = 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_jwt_key_change_this_in_production';
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || 'smtp.ethereal.email',
+  port: Number(process.env.SMTP_PORT) || 587,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
 
 app.use(cors());
 app.use(express.json());
@@ -70,15 +80,76 @@ const authenticateToken = (req: any, res: any, next: any) => {
 // --- Auth Routes ---
 
 app.post('/api/register', async (req, res) => {
-  const { username, password, role } = req.body;
-  if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+  const { username, email, password, role } = req.body;
+  if (!username || !password || !email) return res.status(400).json({ error: 'Username, email and password required' });
 
   const hashedPassword = await bcrypt.hash(password, 10);
   try {
-    await query('INSERT INTO Users (username, password_hash, role) VALUES (?, ?, ?)', [username, hashedPassword, role || 'USER']);
+    await query(
+      'INSERT INTO Users (username, email, password_hash, role) VALUES (?, ?, ?, ?)', 
+      [username, email, hashedPassword, role || 'USER']
+    );
     res.status(201).json({ message: 'User registered successfully' });
-  } catch (err) {
+  } catch (err: any) {
+    if (err.message.includes('UNIQUE constraint failed: Users.email') || err.message.includes('Duplicate entry')) {
+      return res.status(400).json({ error: 'Email already exists' });
+    }
     res.status(400).json({ error: 'Username already exists' });
+  }
+});
+
+app.post('/api/forgot-password/send-otp', async (req, res) => {
+  const { email } = req.body;
+  try {
+    const results: any = await query('SELECT username FROM Users WHERE email = ?', [email]);
+    if (results.length === 0) return res.status(404).json({ error: 'User with this email not found' });
+    
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiry = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
+    
+    await query('UPDATE Users SET otp = ?, otp_expiry = ? WHERE email = ?', [otp, expiry.toISOString(), email]);
+    
+    // Send email
+    if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+      await transporter.sendMail({
+        from: '"Petroleum Integrity System" <noreply@petrointegrity.com>',
+        to: email,
+        subject: "Your OTP for Password Reset",
+        text: `Your One-Time Password (OTP) for password reset is: ${otp}. It expires in 10 minutes.`,
+        html: `<p>Your One-Time Password (OTP) for password reset is: <b>${otp}</b>.</p><p>It expires in 10 minutes.</p>`
+      });
+      res.json({ message: 'OTP sent to email' });
+    } else {
+      console.log(`[DEV MODE] OTP for ${email}: ${otp}`);
+      res.json({ message: 'OTP generated and logged (Check server logs in dev)', dev_otp: otp });
+    }
+  } catch (err: any) {
+    console.error('OTP Error:', err);
+    res.status(500).json({ error: 'Failed to send OTP' });
+  }
+});
+
+app.post('/api/forgot-password/verify-otp', async (req, res) => {
+  const { email, otp, new_password } = req.body;
+  try {
+    const results: any = await query('SELECT * FROM Users WHERE email = ?', [email]);
+    if (results.length === 0) return res.status(404).json({ error: 'User not found' });
+    
+    const user = results[0];
+    if (user.otp !== otp) {
+      return res.status(400).json({ error: 'Invalid OTP' });
+    }
+    
+    if (new Date(user.otp_expiry) < new Date()) {
+      return res.status(400).json({ error: 'OTP expired' });
+    }
+
+    const hashedPassword = await bcrypt.hash(new_password, 10);
+    await query('UPDATE Users SET password_hash = ?, otp = NULL, otp_expiry = NULL WHERE email = ?', [hashedPassword, email]);
+    res.json({ message: 'Password reset successfully' });
+  } catch (err: any) {
+    console.error('Verify error:', err);
+    res.status(500).json({ error: 'Failed to reset password' });
   }
 });
 
@@ -164,6 +235,14 @@ const createCRUDRoutes = (tableName: string, idField: string) => {
   app.post(`/api/${tableName.toLowerCase()}`, authenticateToken, checkRole, async (req, res) => {
     const { signature, ...data } = req.body;
     
+    // Negative value validation
+    const numericFields = ['Volume', 'Price', 'Quantity', 'Distance', 'Current_Capacity', 'Threshold', 'Input_Volume', 'Output_Volume', 'Dispatch_Volume', 'Receive_Volume'];
+    for (const field of numericFields) {
+      if (data[field] !== undefined && Number(data[field]) < 0) {
+        return res.status(400).json({ error: `${field.replace('_', ' ')} cannot be negative.` });
+      }
+    }
+
     // Throughput Efficiency Calculation
     if (tableName === 'Refining_Process' && data.Input_Volume && data.Output_Volume) {
       data.Throughput_Efficiency = (data.Output_Volume / data.Input_Volume) * 100;
@@ -180,7 +259,7 @@ const createCRUDRoutes = (tableName: string, idField: string) => {
       );
       
       await processAlerts(data);
-      await addToLedger(tableName, data[idField], data, signature || 'SYSTEM_GEN');
+      await addToLedger(tableName, data[idField], data, (req as any).user?.username || signature || 'ANONYMOUS');
       res.status(201).json({ message: 'Record created and ledger updated', id: data[idField] });
     } catch (err: any) {
       console.error(`Error adding to ${tableName}:`, err);
@@ -200,6 +279,14 @@ const createCRUDRoutes = (tableName: string, idField: string) => {
     const { id } = req.params;
     const { signature, ...data } = req.body;
     
+    // Negative value validation
+    const numericFields = ['Volume', 'Price', 'Quantity', 'Distance', 'Current_Capacity', 'Threshold', 'Input_Volume', 'Output_Volume', 'Dispatch_Volume', 'Receive_Volume'];
+    for (const field of numericFields) {
+      if (data[field] !== undefined && Number(data[field]) < 0) {
+        return res.status(400).json({ error: `${field.replace('_', ' ')} cannot be negative.` });
+      }
+    }
+
     try {
       const results: any = await query(`SELECT * FROM ${tableName} WHERE ${idField} = ?`, [id]);
       const oldData = results[0];
@@ -212,7 +299,7 @@ const createCRUDRoutes = (tableName: string, idField: string) => {
       await query(`UPDATE ${tableName} SET ${setClause} WHERE ${idField} = ?`, values);
       
       await processAlerts(data);
-      await addToLedger(tableName, id, data, signature || 'SYSTEM_CORRECTION', 'UPDATE', oldData);
+      await addToLedger(tableName, id, data, (req as any).user?.username || signature || 'SYSTEM_CORRECTION', 'UPDATE', oldData);
       res.json({ message: 'Record updated and correction logged' });
     } catch (err: any) {
       console.error(`Error updating ${tableName}:`, err);
@@ -234,6 +321,36 @@ createCRUDRoutes('Refining_Process', 'Refine_ID');
 createCRUDRoutes('Distribution', 'Distribution_ID');
 createCRUDRoutes('Retail', 'Retail_ID');
 createCRUDRoutes('CO2_Emissions', 'Emission_ID');
+
+// Trust Score Route
+app.get('/api/trust-scores', authenticateToken, async (req, res) => {
+  try {
+    const successfulLedger: any = await query('SELECT Digital_Signature_Sender, COUNT(*) as count FROM Transaction_Ledger GROUP BY Digital_Signature_Sender');
+    const failedSnapshots: any = await query('SELECT Triggered_By_Username, COUNT(*) as count FROM Correction_Snapshots GROUP BY Triggered_By_Username');
+    const users: any = await query('SELECT username, role FROM Users');
+
+    const scores = users.map((u: any) => {
+      const success = successfulLedger.find((l: any) => l.Digital_Signature_Sender === u.username)?.count || 0;
+      const failed = failedSnapshots.find((s: any) => s.Triggered_By_Username === u.username)?.count || 0;
+      const total = success + failed;
+      const score = total === 0 ? 100 : Math.round((success / total) * 100);
+      
+      return {
+        username: u.username,
+        role: u.role,
+        success,
+        failed,
+        total,
+        score
+      };
+    }).sort((a: any, b: any) => b.score - a.score);
+
+    res.json(scores);
+  } catch (err: any) {
+    console.error('Trust Score error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Ledger Route
 app.get('/api/ledger', authenticateToken, async (req, res) => {
